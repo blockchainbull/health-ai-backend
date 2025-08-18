@@ -1,9 +1,9 @@
 # main.py
-from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
 from dotenv import load_dotenv
 
+from fastapi import FastAPI, Request, Response
 from utils.keep_alive import start_keep_alive
 from api import users, meals, flutter_compat
 from services.supabase_service import init_supabase_service
@@ -22,14 +22,16 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",      # Local development
-        "http://localhost:65209",     # Your Flutter port
-        "http://localhost:*",         # Any Flutter port
-        "https://*.vercel.app",       # Vercel deployments
-        "https://your-app.vercel.app" # Your specific Vercel domain
+        "http://localhost:3000",                                # Local development
+        "http://localhost:*",                                   # Any local port
+        "https://*.vercel.app",                                 # All Vercel subdomains
+        "https://vercel.app",                                   # Vercel domain
+        "https://*.onrender.com",                               # Render domains
+        "https://fitness-flutter-app.vercel.app/",              # Your specific Vercel URL
+        "*"                                                     # Allow all origins (for testing)
     ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Explicitly include OPTIONS
     allow_headers=["*"],
 )
 
@@ -74,6 +76,15 @@ async def root():
         "status": "running",
         "features": ["user_management", "ai_meal_analysis", "health_chat"]
     }
+
+@app.options("/{rest_of_path:path}")
+async def preflight_handler(request: Request, rest_of_path: str):
+    """Handle CORS preflight requests"""
+    response = Response()
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
 
 # Health check endpoint
 @app.get("/health")
