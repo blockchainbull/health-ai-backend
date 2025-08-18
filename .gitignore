@@ -1,0 +1,17 @@
+# Create .gitignore
+echo "*.env
+.env
+.env.*
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.env.example
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.DS_Store
+*.log" > .gitignore
