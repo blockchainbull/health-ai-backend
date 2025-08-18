@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 from dotenv import load_dotenv
 
+from utils.keep_alive import start_keep_alive
 from api import users, meals, flutter_compat
 from services.supabase_service import init_supabase_service
 
@@ -47,6 +48,11 @@ async def startup_event():
         from services.openai_service import init_openai_service
         init_openai_service()
         print("✅ OpenAI service initialized")
+        
+        # Start keep-alive (only in production)
+        if os.getenv("RENDER_EXTERNAL_URL"):
+            start_keep_alive()
+            print("✅ Keep-alive service started")
         
         print("🎉 Backend startup complete!")
         
