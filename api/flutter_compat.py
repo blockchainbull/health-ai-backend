@@ -14,7 +14,9 @@ from models.weight_schemas import WeightEntryCreate
 from models.sleep_schemas import SleepEntryCreate, SleepEntryUpdate
 from models.supplement_schemas import SupplementPreferenceCreate, SupplementLogCreate
 from models.exercise_schemas import ExerciseLogCreate
-from models.period_schemas import PeriodEntryCreate, PeriodEntryResponse
+from models.period_schemas import PeriodEntryCreate
+from services.chat_service import get_chat_service
+from services.goal_frameworks import WeightGoalFrameworks
 
 
 router = APIRouter()
@@ -1931,4 +1933,115 @@ async def delete_period_entry(period_id: str):
         
     except Exception as e:
         print(f"❌ Error deleting period entry: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.post("/chat", response_model=dict)
+async def health_chat(request: dict):
+    """Enhanced health chat with full user context"""
+    try:
+        user_id = request.get('user_id')
+        message = request.get('message')
+        
+        if not user_id or not message:
+            raise HTTPException(status_code=400, detail="user_id and message are required")
+        
+        print(f"💬 Chat request from user: {user_id}")
+        print(f"💬 Message: {message[:100]}...")
+        
+        chat_service = get_chat_service()
+        response = await chat_service.generate_chat_response(user_id, message)
+        
+        return {
+            "success": True,
+            "response": response,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        print(f"❌ Error in health chat: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/chat/context/{user_id}")
+async def get_user_chat_context(user_id: str):
+    """Get user context for chat debugging"""
+    try:
+        chat_service = get_chat_service()
+        context = await chat_service.get_user_context(user_id)
+        
+        return {
+            "success": True,
+            "context": context
+        }
+        
+    except Exception as e:
+        print(f"❌ Error getting chat context: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/user/{user_id}/framework")
+async def get_user_framework(user_id: str):
+    """Get personalized framework based on user's weight goal"""
+    try:
+        print(f"🎯 Getting framework for user: {user_id}")
+        
+        supabase_service = get_supabase_service()
+        chat_service = get_chat_service()
+        
+        # Get user profile
+        user = await supabase_service.get_user_by_id(user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Get recent activity data for context
+        user_context = await chat_service.get_user_context(user_id)
+        activity_data = user_context.get('recent_activity', {})
+        
+        # Get appropriate framework
+        framework = WeightGoalFrameworks.get_framework_for_user(user, activity_data)
+        
+        return {
+            "success": True,
+            "framework": framework,
+            "user_context": user_context.get('user_profile', {}),
+            "generated_at": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        print(f"❌ Error getting user framework: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/frameworks/compare")
+async def compare_frameworks():
+    """Get all framework types for comparison"""
+    try:
+        # Sample user profile for demonstration
+        sample_profile = {
+            'weight': 70,
+            'target_weight': 65,
+            'height': 170,
+            'age': 30,
+            'gender': 'Female',
+            'activity_level': 'Moderately active',
+            'tdee': 2000,
+            'fitness_level': 'Intermediate'
+        }
+        
+        frameworks = {
+            'weight_loss': WeightGoalFrameworks.get_weight_loss_framework(
+                {**sample_profile, 'weight_goal': 'lose_weight', 'target_weight': 60}
+            ),
+            'weight_gain': WeightGoalFrameworks.get_weight_gain_framework(
+                {**sample_profile, 'weight_goal': 'gain_weight', 'target_weight': 75}
+            ),
+            'maintenance': WeightGoalFrameworks.get_maintenance_framework(
+                {**sample_profile, 'weight_goal': 'maintain_weight'}
+            )
+        }
+        
+        return {
+            "success": True,
+            "frameworks": frameworks
+        }
+        
+    except Exception as e:
+        print(f"❌ Error comparing frameworks: {e}")
         raise HTTPException(status_code=500, detail=str(e))
