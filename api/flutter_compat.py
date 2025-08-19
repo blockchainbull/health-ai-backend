@@ -12,12 +12,10 @@ from services.openai_service import get_openai_service
 from models.step_schemas import StepEntryCreate
 from models.weight_schemas import WeightEntryCreate
 from models.sleep_schemas import SleepEntryCreate, SleepEntryUpdate
-from models.supplement_schemas import (
-    SupplementPreferenceCreate, 
-    SupplementLogCreate, 
-    SupplementPreferenceResponse, 
-    SupplementLogResponse
-)
+from models.supplement_schemas import SupplementPreferenceCreate, SupplementLogCreate
+from models.exercise_schemas import ExerciseLogCreate
+from models.period_schemas import PeriodEntryCreate, PeriodEntryResponse
+
 
 router = APIRouter()
 
@@ -1649,4 +1647,288 @@ async def delete_supplement_preference(preference_id: str):
         
     except Exception as e:
         print(f"❌ Error deleting supplement preference: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.post("/exercise/log", response_model=dict)
+async def log_exercise(exercise_data: ExerciseLogCreate):
+    """Log exercise activity"""
+    try:
+        print(f"💪 Logging exercise: {exercise_data.exercise_name} for user {exercise_data.user_id}")
+        
+        supabase_service = get_supabase_service()
+        
+        # Parse exercise date
+        if exercise_data.exercise_date:
+            try:
+                exercise_date = datetime.fromisoformat(exercise_data.exercise_date.replace('Z', '+00:00'))
+            except ValueError:
+                exercise_date = datetime.now()
+        else:
+            exercise_date = datetime.now()
+        
+        exercise_log_data = {
+            'id': str(uuid.uuid4()),
+            'user_id': exercise_data.user_id,
+            'exercise_name': exercise_data.exercise_name,
+            'exercise_type': exercise_data.exercise_type,
+            'duration_minutes': exercise_data.duration_minutes,
+            'calories_burned': exercise_data.calories_burned,
+            'distance_km': exercise_data.distance_km,
+            'sets': exercise_data.sets,
+            'reps': exercise_data.reps,
+            'weight_kg': exercise_data.weight_kg,
+            'intensity': exercise_data.intensity,
+            'notes': exercise_data.notes,
+            'exercise_date': exercise_date.isoformat(),
+            'created_at': datetime.now().isoformat(),
+            'updated_at': datetime.now().isoformat()
+        }
+        
+        created_log = await supabase_service.create_exercise_log(exercise_log_data)
+        
+        return {"success": True, "id": created_log['id'], "exercise": created_log}
+        
+    except Exception as e:
+        print(f"❌ Error logging exercise: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/exercise/logs/{user_id}")
+async def get_exercise_logs(
+    user_id: str, 
+    exercise_type: Optional[str] = None, 
+    start_date: Optional[str] = None, 
+    end_date: Optional[str] = None, 
+    limit: int = 50
+):
+    """Get exercise logs for a user"""
+    try:
+        print(f"💪 Getting exercise logs for user: {user_id}")
+        
+        supabase_service = get_supabase_service()
+        logs = await supabase_service.get_exercise_logs(
+            user_id, 
+            exercise_type=exercise_type,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit
+        )
+        
+        print(f"💪 Returning {len(logs)} exercise logs")
+        
+        return {"success": True, "exercises": logs}
+        
+    except Exception as e:
+        print(f"❌ Error getting exercise logs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/exercise/stats/{user_id}")
+async def get_exercise_stats(user_id: str, days: int = 30):
+    """Get exercise statistics"""
+    try:
+        print(f"💪 Getting exercise stats for user: {user_id}, last {days} days")
+        
+        supabase_service = get_supabase_service()
+        
+        # Get recent exercise logs - use a broader date range
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=days)
+        
+        print(f"💪 Date range: {start_date} to {end_date}")
+        
+        # Get all logs for the user in the date range
+        logs = await supabase_service.get_exercise_logs(
+            user_id,
+            start_date=str(start_date),
+            end_date=str(end_date),
+            limit=1000  # Increase limit to get all exercises
+        )
+        
+        print(f"💪 Found {len(logs)} exercise logs for stats calculation")
+        
+        # Always return a proper stats object, even if empty
+        stats = {
+            "total_workouts": 0,
+            "total_minutes": 0,
+            "total_calories": 0.0,
+            "avg_duration": 0.0,
+            "most_common_type": None,
+            "type_breakdown": {}
+        }
+        
+        if logs and len(logs) > 0:
+            print(f"💪 Processing {len(logs)} logs for stats...")
+            
+            # Calculate statistics
+            total_workouts = len(logs)
+            total_minutes = 0
+            total_calories = 0.0
+            type_counts = {}
+            
+            for log in logs:
+                # Debug each log
+                duration = log.get('duration_minutes', 0)
+                calories = log.get('calories_burned', 0) or 0
+                exercise_type = log.get('exercise_type', 'other')
+                
+                print(f"💪 Log: {log.get('exercise_name')} - {duration} min, {calories} cal, type: {exercise_type}")
+                
+                total_minutes += duration
+                total_calories += calories
+                
+                # Count exercise types
+                type_counts[exercise_type] = type_counts.get(exercise_type, 0) + 1
+            
+            avg_duration = total_minutes / total_workouts if total_workouts > 0 else 0
+            most_common_type = max(type_counts.items(), key=lambda x: x[1])[0] if type_counts else None
+            
+            stats.update({
+                "total_workouts": total_workouts,
+                "total_minutes": total_minutes,
+                "total_calories": round(total_calories, 1),
+                "avg_duration": round(avg_duration, 1),
+                "most_common_type": most_common_type,
+                "type_breakdown": type_counts
+            })
+            
+            print(f"💪 Calculated stats: {stats}")
+        else:
+            print("💪 No exercise logs found for stats calculation")
+        
+        return {"success": True, "stats": stats}
+        
+    except Exception as e:
+        print(f"❌ Error getting exercise stats: {e}")
+        import traceback
+        traceback.print_exc()
+        # Return empty stats on error, don't raise exception
+        return {
+            "success": False, 
+            "stats": {
+                "total_workouts": 0,
+                "total_minutes": 0,
+                "total_calories": 0.0,
+                "avg_duration": 0.0,
+                "most_common_type": None,
+                "type_breakdown": {}
+            },
+            "error": str(e)
+        }
+
+@router.delete("/exercise/{exercise_id}")
+async def delete_exercise(exercise_id: str):
+    """Delete an exercise log"""
+    try:
+        print(f"💪 Deleting exercise: {exercise_id}")
+        
+        supabase_service = get_supabase_service()
+        success = await supabase_service.delete_exercise_log(exercise_id)
+        
+        if success:
+            return {"success": True, "message": "Exercise deleted successfully"}
+        else:
+            return {"success": False, "message": "Exercise not found"}
+        
+    except Exception as e:
+        print(f"❌ Error deleting exercise: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.post("/period", response_model=dict)
+async def save_period_entry(period_data: PeriodEntryCreate):
+    """Save or update period entry"""
+    try:
+        print(f"🌸 Saving period entry for user {period_data.user_id}")
+        
+        supabase_service = get_supabase_service()
+        
+        # Parse dates
+        try:
+            start_date = datetime.strptime(period_data.start_date, "%Y-%m-%d").date()
+        except ValueError:
+            start_date = datetime.now().date()
+        
+        end_date = None
+        if period_data.end_date:
+            try:
+                end_date = datetime.strptime(period_data.end_date, "%Y-%m-%d").date()
+            except ValueError:
+                pass
+        
+        period_entry_data = {
+            'user_id': period_data.user_id,
+            'start_date': str(start_date),
+            'end_date': str(end_date) if end_date else None,
+            'flow_intensity': period_data.flow_intensity,
+            'symptoms': period_data.symptoms or [],
+            'mood': period_data.mood,
+            'notes': period_data.notes,
+            'updated_at': datetime.now().isoformat()
+        }
+        
+        # Check if there's an ongoing period entry
+        existing_entry = await supabase_service.get_current_period(period_data.user_id)
+        
+        if existing_entry and not existing_entry.get('end_date'):
+            # Update existing ongoing period
+            updated_entry = await supabase_service.update_period_entry(
+                existing_entry['id'],
+                period_entry_data
+            )
+            return {"success": True, "id": existing_entry['id'], "period": updated_entry}
+        else:
+            # Create new period entry
+            period_entry_data['id'] = str(uuid.uuid4())
+            period_entry_data['created_at'] = datetime.now().isoformat()
+            created_entry = await supabase_service.create_period_entry(period_entry_data)
+            return {"success": True, "id": created_entry['id'], "period": created_entry}
+        
+    except Exception as e:
+        print(f"❌ Error saving period entry: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/period/{user_id}")
+async def get_period_history(user_id: str, limit: int = 12):
+    """Get period history for user"""
+    try:
+        print(f"🌸 Getting period history for user: {user_id}")
+        
+        supabase_service = get_supabase_service()
+        entries = await supabase_service.get_period_history(user_id, limit)
+        
+        return {"success": True, "periods": entries}
+        
+    except Exception as e:
+        print(f"❌ Error getting period history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/period/{user_id}/current")
+async def get_current_period(user_id: str):
+    """Get current ongoing period"""
+    try:
+        print(f"🌸 Getting current period for user: {user_id}")
+        
+        supabase_service = get_supabase_service()
+        current_period = await supabase_service.get_current_period(user_id)
+        
+        return {"success": True, "period": current_period}
+        
+    except Exception as e:
+        print(f"❌ Error getting current period: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/period/{period_id}")
+async def delete_period_entry(period_id: str):
+    """Delete a period entry"""
+    try:
+        print(f"🌸 Deleting period entry: {period_id}")
+        
+        supabase_service = get_supabase_service()
+        success = await supabase_service.delete_period_entry(period_id)
+        
+        if success:
+            return {"success": True, "message": "Period entry deleted successfully"}
+        else:
+            return {"success": False, "message": "Period entry not found"}
+        
+    except Exception as e:
+        print(f"❌ Error deleting period entry: {e}")
         raise HTTPException(status_code=500, detail=str(e))

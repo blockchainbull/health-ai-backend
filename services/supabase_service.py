@@ -781,6 +781,154 @@ class SupabaseService:
         except Exception as e:
             print(f"❌ Error deleting supplement preference: {e}")
             return False
+    
+    # Exercise methods
+    async def create_exercise_log(self, exercise_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new exercise log"""
+        try:
+            response = self.client.table('exercise_logs').insert(exercise_data).execute()
+            if response.data:
+                return response.data[0]
+            else:
+                raise Exception("No data returned from Supabase")
+        except Exception as e:
+            print(f"❌ Error creating exercise log: {e}")
+            raise Exception(f"Failed to create exercise log: {str(e)}")
+
+    async def get_exercise_logs(self, user_id: str, exercise_type: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get exercise logs for a user"""
+        try:
+            print(f"🔍 Getting exercise logs for user: {user_id}")
+            print(f"🔍 Filters - type: {exercise_type}, start: {start_date}, end: {end_date}, limit: {limit}")
+            
+            query = self.client.table('exercise_logs')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .order('exercise_date', desc=True)\
+                .limit(limit)
+            
+            # Apply date filters if provided
+            if start_date and end_date:
+                if start_date == end_date:
+                    # ✅ For same day filtering, use date range for the entire day
+                    start_datetime = f"{start_date}T00:00:00"
+                    end_datetime = f"{end_date}T23:59:59"
+                    query = query.gte('exercise_date', start_datetime).lte('exercise_date', end_datetime)
+                    print(f"🔍 Same day filter: {start_datetime} to {end_datetime}")
+                else:
+                    # Different start and end dates
+                    query = query.gte('exercise_date', start_date).lte('exercise_date', end_date)
+                    print(f"🔍 Date range filter: {start_date} to {end_date}")
+            elif start_date:
+                query = query.gte('exercise_date', start_date)
+                print(f"🔍 Start date filter: >= {start_date}")
+            elif end_date:
+                query = query.lte('exercise_date', end_date)
+                print(f"🔍 End date filter: <= {end_date}")
+                
+            if exercise_type:
+                query = query.eq('exercise_type', exercise_type)
+                print(f"🔍 Exercise type filter: {exercise_type}")
+            
+            response = query.execute()
+            
+            logs = response.data or []
+            print(f"✅ Retrieved {len(logs)} exercise logs")
+            
+            # Debug the logs
+            for i, log in enumerate(logs):
+                print(f"🔍 Log {i+1}: {log.get('exercise_name')} - {log.get('duration_minutes')}min on {log.get('exercise_date')}")
+            
+            return logs
+        except Exception as e:
+            print(f"❌ Error getting exercise logs: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+
+    async def delete_exercise_log(self, exercise_id: str) -> bool:
+        """Delete an exercise log"""
+        try:
+            response = self.client.table('exercise_logs')\
+                .delete()\
+                .eq('id', exercise_id)\
+                .execute()
+            
+            return True
+        except Exception as e:
+            print(f"❌ Error deleting exercise log: {e}")
+            return False
+
+    # Period methods
+    async def create_period_entry(self, period_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new period entry"""
+        try:
+            response = self.client.table('period_entries').insert(period_data).execute()
+            if response.data:
+                return response.data[0]
+            else:
+                raise Exception("No data returned from Supabase")
+        except Exception as e:
+            print(f"❌ Error creating period entry: {e}")
+            raise Exception(f"Failed to create period entry: {str(e)}")
+
+    async def update_period_entry(self, entry_id: str, period_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Update an existing period entry"""
+        try:
+            response = self.client.table('period_entries').update(period_data).eq('id', entry_id).execute()
+            if response.data:
+                return response.data[0]
+            else:
+                raise Exception("No data returned from Supabase")
+        except Exception as e:
+            print(f"❌ Error updating period entry: {e}")
+            raise Exception(f"Failed to update period entry: {str(e)}")
+
+    async def get_period_history(self, user_id: str, limit: int = 12) -> List[Dict[str, Any]]:
+        """Get period history for a user"""
+        try:
+            response = self.client.table('period_entries')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .order('start_date', desc=True)\
+                .limit(limit)\
+                .execute()
+            
+            return response.data or []
+        except Exception as e:
+            print(f"❌ Error getting period history: {e}")
+            return []
+
+    async def get_current_period(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get current ongoing period (no end date)"""
+        try:
+            response = self.client.table('period_entries')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .is_('end_date', 'null')\
+                .order('start_date', desc=True)\
+                .limit(1)\
+                .execute()
+            
+            if response.data:
+                return response.data[0]
+            return None
+        except Exception as e:
+            print(f"❌ Error getting current period: {e}")
+            return None
+
+    async def delete_period_entry(self, entry_id: str) -> bool:
+        """Delete a period entry"""
+        try:
+            response = self.client.table('period_entries')\
+                .delete()\
+                .eq('id', entry_id)\
+                .execute()
+            
+            return True
+        except Exception as e:
+            print(f"❌ Error deleting period entry: {e}")
+            return False
 
 # Global instance - we'll initialize this in main.py
 supabase_service = None
