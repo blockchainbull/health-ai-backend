@@ -1,16 +1,16 @@
 # api/flutter_compat.py
 from fastapi import APIRouter, HTTPException
-from typing import Dict, Any, Optional
-import uuid
-from datetime import datetime
+from typing import Dict, Any, Optional, List
 from pydantic import BaseModel
+from datetime import datetime, timedelta
+import uuid
 
-from models.schemas import UserCreate, UserResponse, UserLogin, UserLoginResponse
+from models.water_schemas import WaterEntryCreate
 from services.supabase_service import get_supabase_service
 from api.users import hash_password, verify_password
-from models.meal_schemas import MealAnalysisRequest, MealEntryResponse
 from services.openai_service import get_openai_service
-from datetime import datetime
+from models.step_schemas import StepEntryCreate
+from models.weight_schemas import WeightEntryCreate
 
 router = APIRouter()
 
@@ -633,4 +633,494 @@ async def get_meal_history_flutter(user_id: str, limit: int = 50, date: str = No
         
     except Exception as e:
         print(f"❌ Error getting Flutter meal history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+# Water logging
+@router.post("/water", response_model=dict)
+async def save_water_entry(water_data: WaterEntryCreate):
+    """Save or update daily water intake"""
+    try:
+        print(f"💧 Saving water entry: {water_data.glasses_consumed} glasses for user {water_data.user_id}")
+        
+        supabase_service = get_supabase_service()
+        
+        # Parse date and convert to date only (not datetime)
+        try:
+            entry_date = datetime.fromisoformat(water_data.date.replace('Z', '+00:00')).date()
+        except ValueError:
+            entry_date = datetime.now().date()
+        
+        # Check if entry exists for this date
+        existing_entry = await supabase_service.get_water_entry_by_date(
+            water_data.user_id, 
+            entry_date
+        )
+        
+        water_entry_data = {
+            'user_id': water_data.user_id,
+            'date': str(entry_date),  # Convert date to string for Supabase
+            'glasses_consumed': water_data.glasses_consumed,
+            'total_ml': water_data.total_ml,
+            'target_ml': water_data.target_ml,
+            'notes': water_data.notes,
+            'updated_at': datetime.now().isoformat()
+        }
+        
+        if existing_entry:
+            # Update existing entry
+            updated_entry = await supabase_service.update_water_entry(
+                existing_entry['id'], 
+                water_entry_data
+            )
+            return {"success": True, "id": existing_entry['id'], "entry": updated_entry}
+        else:
+            # Create new entry
+            water_entry_data['id'] = str(uuid.uuid4())
+            water_entry_data['created_at'] = datetime.now().isoformat()
+            created_entry = await supabase_service.create_water_entry(water_entry_data)
+            return {"success": True, "id": created_entry['id'], "entry": created_entry}
+            
+    except Exception as e:
+        print(f"❌ Error saving water entry: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/water/{user_id}/today")
+async def get_today_water(user_id: str):
+    """Get today's water intake"""
+    try:
+        print(f"💧 Getting today's water for user: {user_id}")
+        
+        supabase_service = get_supabase_service()
+        today = datetime.now().date()  # Get today's date
+        entry = await supabase_service.get_water_entry_by_date(user_id, today)
+        
+        return {"success": True, "entry": entry}
+        
+    except Exception as e:
+        print(f"❌ Error getting today's water: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/water/{user_id}")
+async def get_water_history(user_id: str, limit: int = 30):
+    """Get water intake history for a user"""
+    try:
+        print(f"💧 Getting water history for user: {user_id}, limit: {limit}")
+        
+        supabase_service = get_supabase_service()
+        entries = await supabase_service.get_water_history(user_id, limit)
+        
+        # Calculate summary statistics
+        total_days = len(entries)
+        goal_achieved_days = sum(1 for entry in entries if entry.get('total_ml', 0) >= entry.get('target_ml', 2000))
+        avg_daily_intake = sum(entry.get('total_ml', 0) for entry in entries) / max(total_days, 1)
+        
+        return {
+            "success": True, 
+            "entries": entries,
+            "summary": {
+                "total_days": total_days,
+                "goal_achieved_days": goal_achieved_days,
+                "goal_achievement_rate": (goal_achieved_days / max(total_days, 1)) * 100,
+                "average_daily_intake": round(avg_daily_intake, 1)
+            }
+        }
+        
+    except Exception as e:
+        print(f"❌ Error getting water history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/water/{user_id}/stats")
+async def get_water_stats(user_id: str, days: int = 7):
+    """Get water intake statistics for the last N days"""
+    try:
+        print(f"💧 Getting water stats for user: {user_id}, last {days} days")
+        
+        supabase_service = get_supabase_service()
+        entries = await supabase_service.get_water_history(user_id, days)
+        
+        if not entries:
+            return {
+                "success": True,
+                "stats": {
+                    "average_daily": 0,
+                    "best_day": 0,
+                    "goal_achievement_rate": 0,
+                    "total_glasses": 0,
+                    "streak_days": 0
+                }
+            }
+        
+        # Calculate statistics
+        daily_totals = [entry.get('total_ml', 0) for entry in entries]
+        goal_achievements = [entry.get('total_ml', 0) >= entry.get('target_ml', 2000) for entry in entries]
+        
+        stats = {
+            "average_daily": round(sum(daily_totals) / len(daily_totals), 1),
+            "best_day": max(daily_totals),
+            "goal_achievement_rate": round((sum(goal_achievements) / len(goal_achievements)) * 100, 1),
+            "total_glasses": sum(entry.get('glasses_consumed', 0) for entry in entries),
+            "streak_days": _calculate_water_streak(goal_achievements)
+        }
+        
+        return {"success": True, "stats": stats}
+        
+    except Exception as e:
+        print(f"❌ Error getting water stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+def _calculate_water_streak(achievements: List[bool]) -> int:
+    """Calculate current streak of goal achievements"""
+    streak = 0
+    for achieved in achievements:
+        if achieved:
+            streak += 1
+        else:
+            break
+    return streak
+
+@router.post("/steps", response_model=dict)
+async def save_step_entry(step_data: StepEntryCreate):
+    """Save or update daily step entry"""
+    try:
+        print(f"🚶 Saving step entry: {step_data.steps} steps for user {step_data.userId}")
+        
+        supabase_service = get_supabase_service()
+        
+        # Parse date
+        try:
+            entry_date = datetime.fromisoformat(step_data.date.replace('Z', '+00:00')).date()
+        except ValueError:
+            entry_date = datetime.now().date()
+        
+        # Check if entry exists for this date
+        existing_entry = await supabase_service.get_step_entry_by_date(
+            step_data.userId, 
+            entry_date
+        )
+        
+        step_entry_data = {
+            'user_id': step_data.userId,
+            'date': str(entry_date),
+            'steps': step_data.steps,
+            'goal': step_data.goal,
+            'calories_burned': step_data.caloriesBurned,
+            'distance_km': step_data.distanceKm,
+            'active_minutes': step_data.activeMinutes,
+            'source_type': step_data.sourceType,
+            'last_synced': step_data.lastSynced,
+            'updated_at': datetime.now().isoformat()
+        }
+        
+        if existing_entry:
+            # Update existing entry
+            updated_entry = await supabase_service.update_step_entry(
+                existing_entry['id'], 
+                step_entry_data
+            )
+            return {"success": True, "id": existing_entry['id'], "entry": updated_entry}
+        else:
+            # Create new entry
+            step_entry_data['id'] = str(uuid.uuid4())
+            step_entry_data['created_at'] = datetime.now().isoformat()
+            created_entry = await supabase_service.create_step_entry(step_entry_data)
+            return {"success": True, "id": created_entry['id'], "entry": created_entry}
+            
+    except Exception as e:
+        print(f"❌ Error saving step entry: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/steps/{user_id}")
+async def get_all_steps(user_id: str, limit: int = 100):
+    """Get all step entries for a user"""
+    try:
+        print(f"🚶 Getting all steps for user: {user_id}, limit: {limit}")
+        
+        supabase_service = get_supabase_service()
+        entries = await supabase_service.get_step_history(user_id, limit)
+        
+        print(f"🚶 Found {len(entries)} step entries in database")
+        
+        # Calculate summary statistics
+        total_days = len(entries)
+        if total_days > 0:
+            total_steps = sum(entry.get('steps', 0) for entry in entries)
+            goal_achieved_days = sum(1 for entry in entries if entry.get('steps', 0) >= entry.get('goal', 10000))
+            avg_daily_steps = total_steps / total_days
+            best_day_steps = max(entry.get('steps', 0) for entry in entries)
+        else:
+            total_steps = avg_daily_steps = best_day_steps = goal_achieved_days = 0
+        
+        # Log the first entry for debugging
+        if entries:
+            print(f"🚶 First entry sample: {entries[0]}")
+        
+        response_data = {
+            "success": True,
+            "entries": entries,  # Make sure this key exists
+            "summary": {
+                "total_days": total_days,
+                "total_steps": total_steps,
+                "goal_achieved_days": goal_achieved_days,
+                "goal_achievement_rate": (goal_achieved_days / max(total_days, 1)) * 100,
+                "average_daily_steps": round(avg_daily_steps),
+                "best_day_steps": best_day_steps
+            }
+        }
+        
+        print(f"🚶 Returning response with {len(entries)} entries")
+        return response_data
+        
+    except Exception as e:
+        print(f"❌ Error getting all steps: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/steps/{user_id}/today")
+async def get_today_steps(user_id: str):
+    """Get today's step entry"""
+    try:
+        print(f"🚶 Getting today's steps for user: {user_id}")
+        
+        supabase_service = get_supabase_service()
+        today = datetime.now().date()
+        entry = await supabase_service.get_step_entry_by_date(user_id, today)
+        
+        return {"success": True, "entry": entry}
+        
+    except Exception as e:
+        print(f"❌ Error getting today's steps: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/steps/{user_id}/range")
+async def get_steps_in_range(user_id: str, start_date: str, end_date: str):
+    """Get step entries within a date range"""
+    try:
+        print(f"🚶 Getting steps in range for user: {user_id}, {start_date} to {end_date}")
+        
+        supabase_service = get_supabase_service()
+        entries = await supabase_service.get_step_entries_in_range(user_id, start_date, end_date)
+        
+        return {"success": True, "entries": entries}
+        
+    except Exception as e:
+        print(f"❌ Error getting steps in range: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/steps/{user_id}/{date}")
+async def delete_step_entry(user_id: str, date: str):
+    """Delete a step entry for a specific date"""
+    try:
+        print(f"🚶 Deleting step entry for user: {user_id}, date: {date}")
+        
+        supabase_service = get_supabase_service()
+        
+        # Parse date
+        entry_date = datetime.fromisoformat(date.replace('Z', '+00:00')).date()
+        
+        success = await supabase_service.delete_step_entry_by_date(user_id, entry_date)
+        
+        if success:
+            return {"success": True, "message": "Step entry deleted successfully"}
+        else:
+            return {"success": False, "message": "Step entry not found"}
+        
+    except Exception as e:
+        print(f"❌ Error deleting step entry: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/steps/{user_id}/stats")
+async def get_step_stats(user_id: str, days: int = 7):
+    """Get step statistics for the last N days"""
+    try:
+        print(f"🚶 Getting step stats for user: {user_id}, last {days} days")
+        
+        supabase_service = get_supabase_service()
+        entries = await supabase_service.get_step_history(user_id, days)
+        
+        if not entries:
+            return {
+                "success": True,
+                "stats": {
+                    "average_daily_steps": 0,
+                    "best_day_steps": 0,
+                    "goal_achievement_rate": 0,
+                    "total_steps": 0,
+                    "streak_days": 0,
+                    "total_distance": 0.0,
+                    "total_calories": 0.0
+                }
+            }
+        
+        # Calculate statistics
+        daily_steps = [entry.get('steps', 0) for entry in entries]
+        goal_achievements = [entry.get('steps', 0) >= entry.get('goal', 10000) for entry in entries]
+        
+        stats = {
+            "average_daily_steps": round(sum(daily_steps) / len(daily_steps)),
+            "best_day_steps": max(daily_steps),
+            "goal_achievement_rate": round((sum(goal_achievements) / len(goal_achievements)) * 100, 1),
+            "total_steps": sum(daily_steps),
+            "streak_days": _calculate_step_streak(goal_achievements),
+            "total_distance": round(sum(entry.get('distance_km', 0) for entry in entries), 2),
+            "total_calories": round(sum(entry.get('calories_burned', 0) for entry in entries), 1)
+        }
+        
+        return {"success": True, "stats": stats}
+        
+    except Exception as e:
+        print(f"❌ Error getting step stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+def _calculate_step_streak(achievements: List[bool]) -> int:
+    """Calculate current streak of step goal achievements"""
+    streak = 0
+    for achieved in achievements:
+        if achieved:
+            streak += 1
+        else:
+            break
+    return streak
+
+@router.post("/weight", response_model=dict)
+async def save_weight_entry(weight_data: WeightEntryCreate):
+    """Save or update weight entry"""
+    try:
+        print(f"⚖️ Saving weight entry: {weight_data.weight} kg for user {weight_data.user_id}")
+        
+        supabase_service = get_supabase_service()
+        
+        # Parse date
+        try:
+            entry_date = datetime.fromisoformat(weight_data.date.replace('Z', '+00:00'))
+        except ValueError:
+            entry_date = datetime.now()
+        
+        weight_entry_data = {
+            'user_id': weight_data.user_id,
+            'date': entry_date.isoformat(),
+            'weight': weight_data.weight,
+            'notes': weight_data.notes,
+            'body_fat_percentage': weight_data.body_fat_percentage,
+            'muscle_mass_kg': weight_data.muscle_mass_kg,
+            'updated_at': datetime.now().isoformat()
+        }
+        
+        # Always create new entry for weight (allow multiple entries per day)
+        weight_entry_data['id'] = str(uuid.uuid4())
+        weight_entry_data['created_at'] = datetime.now().isoformat()
+        created_entry = await supabase_service.create_weight_entry(weight_entry_data)
+        
+        return {"success": True, "id": created_entry['id'], "entry": created_entry}
+            
+    except Exception as e:
+        print(f"❌ Error saving weight entry: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/weight/{user_id}")
+async def get_weight_history(user_id: str, limit: int = 50):
+    """Get weight history for a user"""
+    try:
+        print(f"⚖️ Getting weight history for user: {user_id}, limit: {limit}")
+        
+        supabase_service = get_supabase_service()
+        entries = await supabase_service.get_weight_history(user_id, limit)
+        
+        print(f"✅ Returning {len(entries)} weight entries")
+        
+        return {
+            "success": True,
+            "weights": entries,
+            "summary": {
+                "total_entries": len(entries)
+            }
+        }
+        
+    except Exception as e:
+        print(f"❌ Error getting weight history: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/weight/{user_id}/latest")
+async def get_latest_weight(user_id: str):
+    """Get the latest weight entry for a user"""
+    try:
+        print(f"⚖️ Getting latest weight for user: {user_id}")
+        
+        supabase_service = get_supabase_service()
+        entry = await supabase_service.get_latest_weight(user_id)
+        
+        return {"success": True, "weight": entry}
+        
+    except Exception as e:
+        print(f"❌ Error getting latest weight: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/weight/{entry_id}")
+async def delete_weight_entry(entry_id: str):
+    """Delete a weight entry"""
+    try:
+        print(f"⚖️ Deleting weight entry: {entry_id}")
+        
+        supabase_service = get_supabase_service()
+        success = await supabase_service.delete_weight_entry(entry_id)
+        
+        if success:
+            return {"success": True, "message": "Weight entry deleted successfully"}
+        else:
+            return {"success": False, "message": "Weight entry not found"}
+        
+    except Exception as e:
+        print(f"❌ Error deleting weight entry: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/weight/{user_id}/stats")
+async def get_weight_stats(user_id: str, days: int = 30):
+    """Get weight statistics for the last N days"""
+    try:
+        print(f"⚖️ Getting weight stats for user: {user_id}, last {days} days")
+        
+        supabase_service = get_supabase_service()
+        entries = await supabase_service.get_weight_history(user_id, days)
+        
+        if not entries:
+            return {
+                "success": True,
+                "stats": {
+                    "average_weight": 0,
+                    "weight_trend": "stable",
+                    "total_change": 0,
+                    "weekly_change": 0,
+                    "monthly_change": 0
+                }
+            }
+        
+        weights = [entry.get('weight', 0) for entry in entries]
+        avg_weight = sum(weights) / len(weights)
+        
+        # Determine trend
+        if len(weights) >= 2:
+            total_change = weights[0] - weights[-1]
+            if total_change > 0.5:
+                trend = "gaining"
+            elif total_change < -0.5:
+                trend = "losing"
+            else:
+                trend = "stable"
+        else:
+            total_change = 0
+            trend = "stable"
+        
+        stats = {
+            "average_weight": round(avg_weight, 1),
+            "weight_trend": trend,
+            "total_change": round(total_change, 1),
+            "entry_count": len(entries)
+        }
+        
+        return {"success": True, "stats": stats}
+        
+    except Exception as e:
+        print(f"❌ Error getting weight stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))

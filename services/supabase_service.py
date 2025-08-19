@@ -3,7 +3,7 @@ from supabase import create_client, Client
 import os
 from typing import Dict, List, Optional, Any
 import uuid
-from datetime import datetime
+from datetime import datetime, date
 import json
 
 class SupabaseService:
@@ -244,6 +244,320 @@ class SupabaseService:
             import traceback
             traceback.print_exc()
             return []
+        
+    async def get_water_entry_by_date(self, user_id: str, entry_date: date) -> Optional[Dict[str, Any]]:
+        """Get water entry for a specific date"""
+        try:
+            response = self.client.table('daily_water')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('date', str(entry_date))\
+                .execute()
+            
+            if response.data:
+                return response.data[0]
+            return None
+        except Exception as e:
+            print(f"❌ Error getting water entry by date: {e}")
+            return None
+
+    async def create_water_entry(self, water_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new water entry"""
+        try:
+            response = self.client.table('daily_water').insert(water_data).execute()
+            if response.data:
+                return response.data[0]
+            else:
+                raise Exception("No data returned from Supabase")
+        except Exception as e:
+            print(f"❌ Error creating water entry: {e}")
+            raise Exception(f"Failed to create water entry: {str(e)}")
+
+    async def update_water_entry(self, entry_id: str, water_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Update an existing water entry"""
+        try:
+            response = self.client.table('daily_water').update(water_data).eq('id', entry_id).execute()
+            if response.data:
+                return response.data[0]
+            else:
+                raise Exception("No data returned from Supabase")
+        except Exception as e:
+            print(f"❌ Error updating water entry: {e}")
+            raise Exception(f"Failed to update water entry: {str(e)}")
+
+    async def get_water_history(self, user_id: str, limit: int = 30) -> List[Dict[str, Any]]:
+        """Get water intake history for a user"""
+        try:
+            print(f"🔍 Getting {limit} water entries for user: {user_id}")
+            
+            response = self.client.table('daily_water')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .order('date', desc=True)\
+                .limit(limit)\
+                .execute()
+            
+            if response.data:
+                # Format the data to ensure consistency
+                formatted_entries = []
+                for entry in response.data:
+                    formatted_entry = {
+                        'id': entry['id'],
+                        'user_id': entry['user_id'],
+                        'date': entry['date'],
+                        'glasses_consumed': entry.get('glasses_consumed', 0),
+                        'total_ml': float(entry.get('total_ml', 0.0)),
+                        'target_ml': float(entry.get('target_ml', 2000.0)),
+                        'notes': entry.get('notes'),
+                        'created_at': entry.get('created_at'),
+                        'updated_at': entry.get('updated_at')
+                    }
+                    formatted_entries.append(formatted_entry)
+                
+                print(f"✅ Retrieved {len(formatted_entries)} water entries")
+                return formatted_entries
+            
+            return []
+        except Exception as e:
+            print(f"❌ Error getting water history: {e}")
+            return []
+
+    async def get_water_entries_in_range(self, user_id: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+        """Get water entries within a date range"""
+        try:
+            response = self.client.table('daily_water')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .gte('date', start_date)\
+                .lte('date', end_date)\
+                .order('date', desc=True)\
+                .execute()
+            
+            return response.data or []
+        except Exception as e:
+            print(f"❌ Error getting water entries in range: {e}")
+            return []
+        
+    async def create_step_entry(self, step_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new step entry"""
+        try:
+            response = self.client.table('daily_steps').insert(step_data).execute()
+            if response.data:
+                return response.data[0]
+            else:
+                raise Exception("No data returned from Supabase")
+        except Exception as e:
+            print(f"❌ Error creating step entry: {e}")
+            raise Exception(f"Failed to create step entry: {str(e)}")
+
+    async def update_step_entry(self, entry_id: str, step_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Update an existing step entry"""
+        try:
+            response = self.client.table('daily_steps').update(step_data).eq('id', entry_id).execute()
+            if response.data:
+                return response.data[0]
+            else:
+                raise Exception("No data returned from Supabase")
+        except Exception as e:
+            print(f"❌ Error updating step entry: {e}")
+            raise Exception(f"Failed to update step entry: {str(e)}")
+
+    async def get_step_entry_by_date(self, user_id: str, entry_date: date) -> Optional[Dict[str, Any]]:
+        """Get step entry for a specific date"""
+        try:
+            response = self.client.table('daily_steps')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('date', str(entry_date))\
+                .execute()
+            
+            if response.data:
+                return response.data[0]
+            return None
+        except Exception as e:
+            print(f"❌ Error getting step entry by date: {e}")
+            return None
+
+    async def get_step_history(self, user_id: str, limit: int = 30) -> List[Dict[str, Any]]:
+        """Get step history for a user"""
+        try:
+            print(f"🔍 Getting {limit} step entries for user: {user_id}")
+            
+            response = self.client.table('daily_steps')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .order('date', desc=True)\
+                .limit(limit)\
+                .execute()
+            
+            if response.data:
+                # Format the data to ensure consistency
+                formatted_entries = []
+                for entry in response.data:
+                    formatted_entry = {
+                        'id': entry['id'],
+                        'userId': entry['user_id'],  # Convert to Flutter format
+                        'date': entry['date'],
+                        'steps': entry.get('steps', 0),
+                        'goal': entry.get('goal', 10000),
+                        'caloriesBurned': float(entry.get('calories_burned', 0.0)),
+                        'distanceKm': float(entry.get('distance_km', 0.0)),
+                        'activeMinutes': entry.get('active_minutes', 0),
+                        'sourceType': entry.get('source_type', 'manual'),
+                        'lastSynced': entry.get('last_synced'),
+                        'createdAt': entry.get('created_at'),
+                        'updatedAt': entry.get('updated_at')
+                    }
+                    formatted_entries.append(formatted_entry)
+                
+                print(f"✅ Retrieved {len(formatted_entries)} step entries")
+                return formatted_entries
+            
+            return []
+        except Exception as e:
+            print(f"❌ Error getting step history: {e}")
+            return []
+
+    async def get_step_entries_in_range(self, user_id: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+        """Get step entries within a date range"""
+        try:
+            response = self.client.table('daily_steps')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .gte('date', start_date)\
+                .lte('date', end_date)\
+                .order('date', desc=True)\
+                .execute()
+            
+            if response.data:
+                # Format for Flutter
+                formatted_entries = []
+                for entry in response.data:
+                    formatted_entry = {
+                        'id': entry['id'],
+                        'userId': entry['user_id'],
+                        'date': entry['date'],
+                        'steps': entry.get('steps', 0),
+                        'goal': entry.get('goal', 10000),
+                        'caloriesBurned': float(entry.get('calories_burned', 0.0)),
+                        'distanceKm': float(entry.get('distance_km', 0.0)),
+                        'activeMinutes': entry.get('active_minutes', 0),
+                        'sourceType': entry.get('source_type', 'manual'),
+                        'lastSynced': entry.get('last_synced'),
+                        'createdAt': entry.get('created_at'),
+                        'updatedAt': entry.get('updated_at')
+                    }
+                    formatted_entries.append(formatted_entry)
+                return formatted_entries
+            
+            return []
+        except Exception as e:
+            print(f"❌ Error getting step entries in range: {e}")
+            return []
+
+    async def delete_step_entry_by_date(self, user_id: str, entry_date: date) -> bool:
+        """Delete step entry for a specific date"""
+        try:
+            response = self.client.table('daily_steps')\
+                .delete()\
+                .eq('user_id', user_id)\
+                .eq('date', str(entry_date))\
+                .execute()
+            
+            return True
+        except Exception as e:
+            print(f"❌ Error deleting step entry: {e}")
+            return False
+        
+    async def create_weight_entry(self, weight_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new weight entry"""
+        try:
+            response = self.client.table('weight_entries').insert(weight_data).execute()
+            if response.data:
+                return response.data[0]
+            else:
+                raise Exception("No data returned from Supabase")
+        except Exception as e:
+            print(f"❌ Error creating weight entry: {e}")
+            raise Exception(f"Failed to create weight entry: {str(e)}")
+
+    async def get_weight_history(self, user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get weight history for a user"""
+        try:
+            print(f"🔍 Getting {limit} weight entries for user: {user_id}")
+            
+            response = self.client.table('weight_entries')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .order('date', desc=True)\
+                .limit(limit)\
+                .execute()
+            
+            if response.data:
+                # Format the data to ensure consistency
+                formatted_entries = []
+                for entry in response.data:
+                    formatted_entry = {
+                        'id': entry['id'],
+                        'user_id': entry['user_id'],
+                        'date': entry['date'],
+                        'weight': float(entry.get('weight', 0.0)),
+                        'notes': entry.get('notes'),
+                        'body_fat_percentage': float(entry['body_fat_percentage']) if entry.get('body_fat_percentage') else None,
+                        'muscle_mass_kg': float(entry['muscle_mass_kg']) if entry.get('muscle_mass_kg') else None,
+                        'created_at': entry.get('created_at'),
+                        'updated_at': entry.get('updated_at')
+                    }
+                    formatted_entries.append(formatted_entry)
+                
+                print(f"✅ Retrieved {len(formatted_entries)} weight entries")
+                return formatted_entries
+            
+            return []
+        except Exception as e:
+            print(f"❌ Error getting weight history: {e}")
+            return []
+
+    async def get_latest_weight(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get the latest weight entry for a user"""
+        try:
+            response = self.client.table('weight_entries')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .order('date', desc=True)\
+                .limit(1)\
+                .execute()
+            
+            if response.data:
+                entry = response.data[0]
+                return {
+                    'id': entry['id'],
+                    'user_id': entry['user_id'],
+                    'date': entry['date'],
+                    'weight': float(entry.get('weight', 0.0)),
+                    'notes': entry.get('notes'),
+                    'body_fat_percentage': float(entry['body_fat_percentage']) if entry.get('body_fat_percentage') else None,
+                    'muscle_mass_kg': float(entry['muscle_mass_kg']) if entry.get('muscle_mass_kg') else None,
+                    'created_at': entry.get('created_at'),
+                    'updated_at': entry.get('updated_at')
+                }
+            return None
+        except Exception as e:
+            print(f"❌ Error getting latest weight: {e}")
+            return None
+
+    async def delete_weight_entry(self, entry_id: str) -> bool:
+        """Delete a weight entry"""
+        try:
+            response = self.client.table('weight_entries')\
+                .delete()\
+                .eq('id', entry_id)\
+                .execute()
+            
+            return True
+        except Exception as e:
+            print(f"❌ Error deleting weight entry: {e}")
+            return False
 
 # Global instance - we'll initialize this in main.py
 supabase_service = None
