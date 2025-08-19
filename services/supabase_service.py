@@ -99,24 +99,30 @@ class SupabaseService:
     
     # Meal Operations (we'll expand this later)
     async def create_meal_entry(self, meal_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a meal entry (placeholder for later)"""
+        """Create a new meal entry"""
         try:
-            print(f"🔍 Creating meal entry for user: {meal_data.get('user_id')}")
+            print(f"🔍 Creating meal entry with data: {meal_data}")
             
-            if 'id' not in meal_data:
-                meal_data['id'] = str(uuid.uuid4())
+            # Ensure all nutrition fields are present
+            required_fields = ['fiber_g', 'sugar_g', 'sodium_mg']
+            for field in required_fields:
+                if field not in meal_data:
+                    print(f"⚠️ Missing {field} in meal_data, setting to 0")
+                    meal_data[field] = 0
             
             response = self.client.table('meal_entries').insert(meal_data).execute()
             
             if response.data:
-                print(f"✅ Meal entry created: {response.data[0]['id']}")
-                return response.data[0]
+                created_meal = response.data[0]
+                return created_meal
             else:
-                raise Exception("No data returned from Supabase")
+                raise Exception("No data returned from insert")
                 
         except Exception as e:
             print(f"❌ Error creating meal entry: {e}")
-            raise Exception(f"Failed to create meal entry: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise e
     
     # Chat/Conversation Operations (placeholder for later)
     async def create_conversation(self, conversation_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -203,22 +209,40 @@ class SupabaseService:
         """Get user meals for a specific date"""
         try:
             print(f"🔍 Getting meals for user: {user_id}, date: {date}")
-        
+    
             # Handle different date formats
             if 'T' in date:
                 date = date.split('T')[0]  # Extract just the date part
-        
-            # Query meals for the specific date
+    
+            # Query meals for the specific date - explicitly select all fields
             start_date = f"{date}T00:00:00"
             end_date = f"{date}T23:59:59"
+    
+            response = self.client.table('meal_entries').select(
+                'id, user_id, food_item, quantity, meal_type, calories, '
+                'protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg, '
+                'meal_date, logged_at, nutrition_data, preparation'
+            ).eq(
+                'user_id', user_id
+            ).gte(
+                'meal_date', start_date
+            ).lte(
+                'meal_date', end_date
+            ).order('meal_date', desc=True).execute()
+    
+            meals = response.data or []
         
-            response = self.client.table('meal_entries').select('*').eq('user_id', user_id).gte('meal_date', start_date).lte('meal_date', end_date).order('meal_date', desc=True).execute()
+            # Debug: Check what we're getting
+            print(f"✅ Found {len(meals)} meals for {date}")
+            for meal in meals:
+                print(f"   Meal: {meal.get('food_item')} - fiber: {meal.get('fiber_g')}, sugar: {meal.get('sugar_g')}, sodium: {meal.get('sodium_mg')}")
         
-            print(f"✅ Found {len(response.data)} meals for {date}")
-            return response.data or []
-        
+            return meals
+    
         except Exception as e:
             print(f"❌ Error getting meals by date: {e}")
+            import traceback
+            traceback.print_exc()
             return []
 
 # Global instance - we'll initialize this in main.py

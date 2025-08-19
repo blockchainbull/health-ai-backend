@@ -31,6 +31,8 @@ class OpenAIService:
             - Activity: {user_context.get('activity_level', 'moderate')}
             - TDEE: {user_context.get('tdee', 2000)} calories
             
+            Be specific about fiber, sugar, and sodium content. If the food naturally has low amounts, use realistic values (not zero).
+            
             Return ONLY valid JSON with these exact fields:
             {{
                 "calories": integer,
@@ -45,6 +47,8 @@ class OpenAIService:
                 "healthiness_score": integer (1-10),
                 "suggestions": "string"
             }}
+            
+            Important: Always include realistic values for fiber_g, sugar_g, and sodium_mg - never use null or undefined.
             """
             
             response = await self.client.chat.completions.create(
@@ -63,25 +67,54 @@ class OpenAIService:
                 content = content[3:-3]
             
             nutrition_data = json.loads(content)
+            
+            # Ensure all required fields exist with proper types
+            nutrition_data = {
+                "calories": int(nutrition_data.get("calories", 200)),
+                "protein_g": float(nutrition_data.get("protein_g", 10.0)),
+                "carbs_g": float(nutrition_data.get("carbs_g", 25.0)),
+                "fat_g": float(nutrition_data.get("fat_g", 8.0)),
+                "fiber_g": float(nutrition_data.get("fiber_g", 2.0)),
+                "sugar_g": float(nutrition_data.get("sugar_g", 3.0)),
+                "sodium_mg": int(nutrition_data.get("sodium_mg", 200)),
+                "serving_description": str(nutrition_data.get("serving_description", f"{quantity} of {food_item}")),
+                "nutrition_notes": str(nutrition_data.get("nutrition_notes", "")),
+                "healthiness_score": int(nutrition_data.get("healthiness_score", 6)),
+                "suggestions": str(nutrition_data.get("suggestions", ""))
+            }
+            
             print(f"✅ Meal analysis complete: {nutrition_data['calories']} calories")
+            print(f"   Fiber: {nutrition_data['fiber_g']}g, Sugar: {nutrition_data['sugar_g']}g, Sodium: {nutrition_data['sodium_mg']}mg")
+            
             return nutrition_data
             
+        except json.JSONDecodeError as e:
+            print(f"❌ JSON parsing error: {e}")
+            print(f"   Raw content: {content}")
+            # Return fallback data
+            return self._get_fallback_nutrition(food_item, quantity)
         except Exception as e:
             print(f"❌ Error analyzing meal: {e}")
+            import traceback
+            traceback.print_exc()
             # Return fallback data
-            return {
-                "calories": 200,
-                "protein_g": 10.0,
-                "carbs_g": 25.0,
-                "fat_g": 8.0,
-                "fiber_g": 3.0,
-                "sugar_g": 5.0,
-                "sodium_mg": 300,
-                "serving_description": f"Estimated for {quantity} of {food_item}",
-                "nutrition_notes": "Estimated values due to analysis error",
-                "healthiness_score": 6,
-                "suggestions": "Consider tracking more detailed portion sizes"
-            }
+            return self._get_fallback_nutrition(food_item, quantity)
+
+    def _get_fallback_nutrition(self, food_item: str, quantity: str) -> Dict[str, Any]:
+        """Get fallback nutrition data when AI analysis fails"""
+        return {
+            "calories": 250,
+            "protein_g": 12.0,
+            "carbs_g": 30.0,
+            "fat_g": 10.0,
+            "fiber_g": 3.0,
+            "sugar_g": 5.0,
+            "sodium_mg": 300,
+            "serving_description": f"Estimated for {quantity} of {food_item}",
+            "nutrition_notes": "Estimated values due to analysis error",
+            "healthiness_score": 6,
+            "suggestions": "Consider tracking more detailed portion sizes for better accuracy"
+        }
     
     async def health_chat(self, message: str, user_context: Dict[str, Any]) -> str:
         """Health coaching chat"""

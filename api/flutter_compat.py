@@ -360,79 +360,105 @@ async def auth_login(login_data: dict):
         print(f"❌ Login error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     
-@router.get("/meals/daily-summary/{user_id}")
-async def get_daily_summary(user_id: str, date: str = None):
-    """Get daily nutrition summary for Flutter"""
+@router.get("/debug/meals/{user_id}/{date}")
+async def debug_meal_data(user_id: str, date: str):
+    """Debug endpoint to check raw meal data"""
     try:
-        print(f"🍽️ Getting daily summary for user: {user_id}, date: {date}")
-        
         supabase_service = get_supabase_service()
-        
-        # Use today's date if not provided
-        if not date:
-            from datetime import datetime
-            date = datetime.now().strftime('%Y-%m-%d')
-        
-        # Get meals for the day
         meals = await supabase_service.get_user_meals_by_date(user_id, date)
         
-        # Calculate totals
-        total_calories = sum(float(meal.get('calories', 0)) for meal in meals)
-        total_protein = sum(float(meal.get('protein_g', 0)) for meal in meals)
-        total_carbs = sum(float(meal.get('carbs_g', 0)) for meal in meals)
-        total_fat = sum(float(meal.get('fat_g', 0)) for meal in meals)
-        
-        # Helper function to capitalize meal types
-        def capitalize_meal_type(meal_type):
-            if not meal_type:
-                return "Snack"
-            meal_type = str(meal_type).lower()
-            if meal_type == "lunch":
-                return "Lunch"
-            elif meal_type == "breakfast":
-                return "Breakfast"
-            elif meal_type == "dinner":
-                return "Dinner"
-            else:
-                return "Snack"
-        
-        # Format meals with Flutter's expected field names
-        formatted_meals = []
-        for meal in meals:
-            formatted_meal = {
-                "id": str(meal.get('id', '')),
-                "food_item": str(meal.get('food_item', '')),  # Changed from 'name' to 'food_item'
-                "name": str(meal.get('food_item', '')),  # Keep both for compatibility
-                "quantity": str(meal.get('quantity', '')),
-                "meal_type": capitalize_meal_type(meal.get('meal_type')),
-                "calories": float(meal.get('calories', 0)),
-                "protein": float(meal.get('protein_g', 0)),
-                "carbs": float(meal.get('carbs_g', 0)),
-                "fat": float(meal.get('fat_g', 0)),
-                "protein_g": float(meal.get('protein_g', 0)),  # Flutter might expect this format too
-                "carbs_g": float(meal.get('carbs_g', 0)),
-                "fat_g": float(meal.get('fat_g', 0)),
-                "preparation": str(meal.get('preparation', '')),
-                "logged_at": str(meal.get('logged_at', '')),
-                "nutrition_notes": str(meal.get('nutrition_data', {}).get('nutrition_notes', '')),
-                "healthiness_score": int(meal.get('nutrition_data', {}).get('healthiness_score', 7)),
-                "suggestions": str(meal.get('nutrition_data', {}).get('suggestions', ''))
-            }
-            formatted_meals.append(formatted_meal)
+        print(f"🔍 Raw meal data for {user_id} on {date}:")
+        for i, meal in enumerate(meals):
+            print(f"  Meal {i+1}: {meal.get('food_item')}")
+            print(f"    Raw meal data: {meal}")
+            print(f"    fiber_g: {meal.get('fiber_g')} (type: {type(meal.get('fiber_g'))})")
+            print(f"    sugar_g: {meal.get('sugar_g')} (type: {type(meal.get('sugar_g'))})")
+            print(f"    sodium_mg: {meal.get('sodium_mg')} (type: {type(meal.get('sodium_mg'))})")
         
         return {
             "success": True,
-            "date": str(date),
-            "total_calories": float(total_calories),
-            "total_protein": float(total_protein),
-            "total_carbs": float(total_carbs),
-            "total_fat": float(total_fat),
-            "meals_count": len(meals),
-            "meals": formatted_meals
+            "raw_meals": meals,
+            "count": len(meals)
         }
         
     except Exception as e:
+        print(f"❌ Debug error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/daily-summary/{user_id}")
+async def get_daily_summary_flutter(user_id: str, date: str = None):
+    """Get daily summary for Flutter app with all nutrition data"""
+    try:
+        if date:
+            target_date = datetime.fromisoformat(date.replace('Z', '+00:00')).date()
+        else:
+            target_date = datetime.now().date()
+        
+        print(f"📊 Getting daily summary for user {user_id} on {target_date}")
+        
+        supabase_service = get_supabase_service()
+        meals = await supabase_service.get_user_meals_by_date(user_id, str(target_date))
+        
+        # Calculate totals including fiber, sugar, sodium
+        total_calories = 0
+        total_protein = 0
+        total_carbs = 0
+        total_fat = 0
+        total_fiber = 0
+        total_sugar = 0
+        total_sodium = 0
+        
+        # Calculate totals from all meals
+        for meal in meals:
+            total_calories += float(meal.get('calories', 0))
+            total_protein += float(meal.get('protein_g', 0))
+            total_carbs += float(meal.get('carbs_g', 0))
+            total_fat += float(meal.get('fat_g', 0))
+            total_fiber += float(meal.get('fiber_g', 0))
+            total_sugar += float(meal.get('sugar_g', 0))
+            total_sodium += float(meal.get('sodium_mg', 0))
+        
+        print(f"📊 Calculated totals - Fiber: {total_fiber}, Sugar: {total_sugar}, Sodium: {total_sodium}")
+        
+        response_data = {
+            "success": True,
+            "date": str(target_date),
+            "totals": {
+                "calories": float(total_calories),
+                "protein_g": float(total_protein),
+                "carbs_g": float(total_carbs),
+                "fat_g": float(total_fat),
+                "fiber_g": float(total_fiber),
+                "sugar_g": float(total_sugar),
+                "sodium_mg": float(total_sodium),
+            },
+            "meals": {
+                "total_calories": float(total_calories),
+                "calories_consumed": float(total_calories),
+                "total_protein": float(total_protein),
+                "protein_g": float(total_protein),
+                "total_carbs": float(total_carbs),
+                "carbs_g": float(total_carbs),
+                "total_fat": float(total_fat),
+                "fat_g": float(total_fat),
+                "total_fiber": float(total_fiber),
+                "fiber_g": float(total_fiber),
+                "total_sugar": float(total_sugar),
+                "sugar_g": float(total_sugar),
+                "total_sodium": float(total_sodium),
+                "sodium_mg": float(total_sodium),
+                "meals_count": len(meals),
+                "total_count": len(meals)
+            }
+        }
+        
+        print(f"📊 Returning response: {response_data}")
+        return response_data
+        
+    except Exception as e:
         print(f"❌ Error getting daily summary: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/meals/analyze")
@@ -476,6 +502,11 @@ async def analyze_meal_flutter(meal_data: dict):
             user_context=user_context
         )
         
+        print(f"🔍 AI returned nutrition data: {nutrition_data}")
+        print(f"    AI fiber_g: {nutrition_data.get('fiber_g')}")
+        print(f"    AI sugar_g: {nutrition_data.get('sugar_g')}")
+        print(f"    AI sodium_mg: {nutrition_data.get('sodium_mg')}")
+        
         # Prepare meal entry
         meal_entry = {
             'id': str(uuid.uuid4()),
@@ -499,8 +530,18 @@ async def analyze_meal_flutter(meal_data: dict):
             'updated_at': datetime.now().isoformat()
         }
         
+        print(f"🔍 Meal entry to save: {meal_entry}")
+        print(f"    Entry fiber_g: {meal_entry['fiber_g']}")
+        print(f"    Entry sugar_g: {meal_entry['sugar_g']}")
+        print(f"    Entry sodium_mg: {meal_entry['sodium_mg']}")
+        
         # Save to database
         saved_meal = await supabase_service.create_meal_entry(meal_entry)
+        
+        print(f"🔍 Saved meal returned: {saved_meal}")
+        print(f"    Saved fiber_g: {saved_meal.get('fiber_g')}")
+        print(f"    Saved sugar_g: {saved_meal.get('sugar_g')}")
+        print(f"    Saved sodium_mg: {saved_meal.get('sodium_mg')}")
         
         return {
             "success": True,
@@ -525,6 +566,8 @@ async def analyze_meal_flutter(meal_data: dict):
         
     except Exception as e:
         print(f"❌ Error analyzing Flutter meal: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/meals/history/{user_id}")
