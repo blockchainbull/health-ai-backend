@@ -558,6 +558,229 @@ class SupabaseService:
         except Exception as e:
             print(f"❌ Error deleting weight entry: {e}")
             return False
+        
+    async def create_sleep_entry(self, sleep_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new sleep entry"""
+        try:
+            response = self.client.table('sleep_entries').insert(sleep_data).execute()
+            if response.data:
+                return response.data[0]
+            else:
+                raise Exception("No data returned from Supabase")
+        except Exception as e:
+            print(f"❌ Error creating sleep entry: {e}")
+            raise Exception(f"Failed to create sleep entry: {str(e)}")
+
+    async def update_sleep_entry(self, entry_id: str, sleep_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Update an existing sleep entry"""
+        try:
+            response = self.client.table('sleep_entries').update(sleep_data).eq('id', entry_id).execute()
+            if response.data:
+                return response.data[0]
+            else:
+                raise Exception("No data returned from Supabase")
+        except Exception as e:
+            print(f"❌ Error updating sleep entry: {e}")
+            raise Exception(f"Failed to update sleep entry: {str(e)}")
+
+    async def get_sleep_entry_by_date(self, user_id: str, entry_date: date) -> Optional[Dict[str, Any]]:
+        """Get sleep entry for a specific date"""
+        try:
+            response = self.client.table('sleep_entries')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('date', str(entry_date))\
+                .execute()
+            
+            if response.data:
+                return response.data[0]
+            return None
+        except Exception as e:
+            print(f"❌ Error getting sleep entry by date: {e}")
+            return None
+
+    async def get_sleep_history(self, user_id: str, limit: int = 30) -> List[Dict[str, Any]]:
+        """Get sleep history for a user"""
+        try:
+            print(f"🔍 Getting {limit} sleep entries for user: {user_id}")
+            
+            response = self.client.table('sleep_entries')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .order('date', desc=True)\
+                .limit(limit)\
+                .execute()
+            
+            if response.data:
+                print(f"✅ Retrieved {len(response.data)} sleep entries")
+                return response.data
+            
+            return []
+        except Exception as e:
+            print(f"❌ Error getting sleep history: {e}")
+            return []
+
+    async def delete_sleep_entry(self, entry_id: str) -> bool:
+        """Delete a sleep entry"""
+        try:
+            response = self.client.table('sleep_entries')\
+                .delete()\
+                .eq('id', entry_id)\
+                .execute()
+            
+            return True
+        except Exception as e:
+            print(f"❌ Error deleting sleep entry: {e}")
+            return False
+        
+    async def create_supplement_preference(self, preference_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new supplement preference"""
+        try:
+            response = self.client.table('supplement_preferences').insert(preference_data).execute()
+            if response.data:
+                return response.data[0]
+            else:
+                raise Exception("No data returned from Supabase")
+        except Exception as e:
+            print(f"❌ Error creating supplement preference: {e}")
+            raise Exception(f"Failed to create supplement preference: {str(e)}")
+
+    async def get_supplement_preferences(self, user_id: str) -> List[Dict[str, Any]]:
+        """Get supplement preferences for a user"""
+        try:
+            print(f"🔍 Getting supplement preferences for user: {user_id}")
+            
+            response = self.client.table('supplement_preferences')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('is_active', True)\
+                .order('created_at', desc=False)\
+                .execute()
+            
+            if response.data:
+                print(f"✅ Retrieved {len(response.data)} supplement preferences")
+                return response.data
+            
+            return []
+        except Exception as e:
+            print(f"❌ Error getting supplement preferences: {e}")
+            return []
+
+    async def clear_supplement_preferences(self, user_id: str) -> bool:
+        """Clear all supplement preferences for a user (mark as inactive)"""
+        try:
+            response = self.client.table('supplement_preferences')\
+                .update({'is_active': False, 'updated_at': datetime.now().isoformat()})\
+                .eq('user_id', user_id)\
+                .execute()
+            
+            return True
+        except Exception as e:
+            print(f"❌ Error clearing supplement preferences: {e}")
+            return False
+
+    async def create_supplement_log(self, log_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new supplement log entry"""
+        try:
+            response = self.client.table('supplement_logs').insert(log_data).execute()
+            if response.data:
+                return response.data[0]
+            else:
+                raise Exception("No data returned from Supabase")
+        except Exception as e:
+            print(f"❌ Error creating supplement log: {e}")
+            raise Exception(f"Failed to create supplement log: {str(e)}")
+
+    async def update_supplement_log(self, log_id: str, log_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Update an existing supplement log entry"""
+        try:
+            response = self.client.table('supplement_logs').update(log_data).eq('id', log_id).execute()
+            if response.data:
+                return response.data[0]
+            else:
+                raise Exception("No data returned from Supabase")
+        except Exception as e:
+            print(f"❌ Error updating supplement log: {e}")
+            raise Exception(f"Failed to update supplement log: {str(e)}")
+
+    async def get_supplement_log_by_date(self, user_id: str, supplement_name: str, entry_date: date) -> Optional[Dict[str, Any]]:
+        """Get supplement log for a specific supplement and date"""
+        try:
+            response = self.client.table('supplement_logs')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('supplement_name', supplement_name)\
+                .eq('date', str(entry_date))\
+                .execute()
+            
+            if response.data:
+                return response.data[0]
+            return None
+        except Exception as e:
+            print(f"❌ Error getting supplement log by date: {e}")
+            return None
+
+    async def get_supplement_status_by_date(self, user_id: str, entry_date: date) -> Dict[str, bool]:
+        """Get supplement status for all supplements on a specific date"""
+        try:
+            response = self.client.table('supplement_logs')\
+                .select('supplement_name, taken')\
+                .eq('user_id', user_id)\
+                .eq('date', str(entry_date))\
+                .execute()
+            
+            status = {}
+            if response.data:
+                for log in response.data:
+                    status[log['supplement_name']] = log['taken']
+            
+            return status
+        except Exception as e:
+            print(f"❌ Error getting supplement status by date: {e}")
+            return {}
+
+    async def get_supplement_history(self, user_id: str, supplement_name: Optional[str] = None, days: int = 30) -> List[Dict[str, Any]]:
+        """Get supplement history for a user"""
+        try:
+            print(f"🔍 Getting supplement history for user: {user_id}")
+            
+            # Calculate date range
+            end_date = datetime.now().date()
+            start_date = end_date - timedelta(days=days)
+            
+            query = self.client.table('supplement_logs')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .gte('date', str(start_date))\
+                .lte('date', str(end_date))\
+                .order('date', desc=True)
+            
+            if supplement_name:
+                query = query.eq('supplement_name', supplement_name)
+            
+            response = query.execute()
+            
+            if response.data:
+                print(f"✅ Retrieved {len(response.data)} supplement history records")
+                return response.data
+            
+            return []
+        except Exception as e:
+            print(f"❌ Error getting supplement history: {e}")
+            return []
+
+    async def delete_supplement_preference(self, preference_id: str) -> bool:
+        """Delete a supplement preference"""
+        try:
+            response = self.client.table('supplement_preferences')\
+                .update({'is_active': False, 'updated_at': datetime.now().isoformat()})\
+                .eq('id', preference_id)\
+                .execute()
+            
+            return True
+        except Exception as e:
+            print(f"❌ Error deleting supplement preference: {e}")
+            return False
 
 # Global instance - we'll initialize this in main.py
 supabase_service = None
