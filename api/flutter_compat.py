@@ -2106,3 +2106,34 @@ async def clear_chat_history(user_id: str):
     except Exception as e:
         print(f"❌ Error clearing chat history: {e}")
         return {"success": False, "message": "Failed to clear chat history"}
+    
+@router.get("/chat/messages/{user_id}")
+async def get_chat_messages(user_id: str, limit: int = 50):
+    """Get chat messages for a user"""
+    try:
+        supabase_service = get_supabase_service()
+        messages = await supabase_service.get_chat_messages(user_id, limit)
+        
+        return {
+            "success": True,
+            "messages": messages,
+            "count": len(messages)
+        }
+    except Exception as e:
+        print(f"Error getting chat messages: {e}")
+        return {"success": False, "messages": [], "count": 0}
+
+@router.delete("/chat/messages/{user_id}")
+async def clear_chat_messages(user_id: str):
+    """Clear chat messages for a user"""
+    try:
+        supabase_service = get_supabase_service()
+        success = await supabase_service.clear_chat_messages(user_id)
+        
+        return {
+            "success": success,
+            "message": "Messages cleared" if success else "Failed to clear messages"
+        }
+    except Exception as e:
+        print(f"Error clearing chat messages: {e}")
+        return {"success": False, "message": "Failed to clear messages"}
