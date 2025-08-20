@@ -28,10 +28,11 @@ app.add_middleware(
         "https://vercel.app",                                   # Vercel domain
         "https://*.onrender.com",                               # Render domains
         "https://fitness-flutter-app.vercel.app/",              # Your specific Vercel URL
+        "https://health-ai-backend-i28b.onrender.com"
         "*"                                                     # Allow all origins (for testing)
     ],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Explicitly include OPTIONS
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 

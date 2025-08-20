@@ -1937,7 +1937,7 @@ async def delete_period_entry(period_id: str):
     
 @router.post("/chat", response_model=dict)
 async def health_chat(request: dict):
-    """Enhanced health chat with full user context"""
+    """Enhanced health chat with OpenAI integration"""
     try:
         user_id = request.get('user_id')
         message = request.get('message')
@@ -1947,10 +1947,12 @@ async def health_chat(request: dict):
         
         print(f"💬 Chat request from user: {user_id}")
         
-        # For now, return a simple response until the full chat service is working
+        chat_service = get_chat_service()
+        response = await chat_service.generate_chat_response(user_id, message)
+        
         return {
             "success": True,
-            "response": f"Thanks for your message: '{message}'. I'm here to help with your health goals! (Chat service is being set up)",
+            "response": response,
             "timestamp": datetime.now().isoformat()
         }
         
@@ -1958,7 +1960,7 @@ async def health_chat(request: dict):
         print(f"❌ Error in health chat: {e}")
         return {
             "success": False,
-            "response": "I'm having trouble right now, but I'm here to help with your health journey!",
+            "response": "I'm having trouble right now, but I'm here to help with your health journey! Try asking about nutrition, exercise, or your goals.",
             "error": str(e)
         }
 
