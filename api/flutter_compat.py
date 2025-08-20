@@ -1984,23 +1984,58 @@ async def get_user_chat_context(user_id: str):
     
 @router.get("/user/{user_id}/framework")
 async def get_user_framework(user_id: str):
-    """Get user framework"""
     try:
         print(f"🎯 Getting framework for user: {user_id}")
         
-        # Return basic framework for now
+        supabase_service = get_supabase_service()
+        user = await supabase_service.get_user_by_id(user_id)
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Debug the user data
+        print(f"🎯 User data: {user}")
+        print(f"🎯 User weight_goal: '{user.get('weight_goal')}'")
+        print(f"🎯 User primary_goal: '{user.get('primary_goal')}'")
+        
+        # Fix the weight goal mapping
+        weight_goal = user.get('weight_goal', '').lower().strip()
+        primary_goal = user.get('primary_goal', '').lower().strip()
+        
+        # Map based on both weight_goal and primary_goal
+        if 'lose' in weight_goal or 'lose' in primary_goal:
+            mapped_goal = 'lose_weight'
+        elif 'gain' in weight_goal or 'gain' in primary_goal:
+            mapped_goal = 'gain_weight'
+        else:
+            mapped_goal = 'maintain_weight'
+            
+        print(f"🎯 Mapped goal: {mapped_goal}")
+        
+        # Update the user data for framework generation
+        user_for_framework = {**user, 'weight_goal': mapped_goal}
+        
+        # Get framework based on mapped goal
+        framework = WeightGoalFrameworks.get_framework_for_user(user_for_framework)
+        
+        print(f"🎯 Generated framework type: {framework.get('framework_type')}")
+        
         return {
             "success": True,
-            "framework": {
-                "framework_type": "maintenance",
-                "nutrition": {"daily_calories": 2000},
-                "exercise": {"cardio_minutes_week": 150}
+            "framework": framework,
+            "debug_info": {
+                "original_weight_goal": user.get('weight_goal'),
+                "original_primary_goal": user.get('primary_goal'),
+                "mapped_goal": mapped_goal,
+                "framework_type": framework.get('framework_type')
             }
         }
         
     except Exception as e:
-        print(f"❌ Error getting framework: {e}")
-        return {"success": False, "framework": None}
+        print(f"❌ Error getting user framework: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/frameworks/compare")
 async def compare_frameworks():
