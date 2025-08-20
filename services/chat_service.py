@@ -244,33 +244,52 @@ class HealthChatService:
             return abs(change) <= 1.0
     
     async def generate_chat_response(self, user_id: str, message: str) -> str:
-        """Generate personalized chat response with full user context"""
+        """Generate chat response with message persistence"""
         try:
-            print(f"💬 Generating chat response for user: {user_id}")
-            print(f"💬 Message: {message[:100]}...")
+            print(f"Generating chat response for user: {user_id}")
             
+            # Save user message
+            await self.supabase_service.save_chat_message(user_id, message, is_user=True)
+            
+            # Get user context and recent conversation
             user_context = await self.get_user_context(user_id)
+            recent_messages = await self.supabase_service.get_recent_chat_context(user_id, limit=10)
+            
+            # Create system prompt
             system_prompt = self._create_system_prompt(user_context)
             
+            # Build conversation for OpenAI
+            messages = [{"role": "system", "content": system_prompt}]
+            
+            # Add recent conversation context
+            for msg in recent_messages:
+                role = "user" if msg["is_user"] else "assistant"
+                messages.append({"role": role, "content": msg["message"]})
+            
+            # Add current message
+            messages.append({"role": "user", "content": message})
+            
+            # Get AI response
             response = await self.openai_service.client.chat.completions.create(
                 model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": message}
-                ],
+                messages=messages,
                 temperature=0.7,
                 max_tokens=600
             )
             
             reply = response.choices[0].message.content.strip()
-            print(f"✅ Generated {len(reply)} character response")
+            
+            # Save AI response
+            await self.supabase_service.save_chat_message(user_id, reply, is_user=False)
+            
+            print(f"Generated and saved response: {len(reply)} characters")
             return reply
             
         except Exception as e:
-            print(f"❌ Error generating chat response: {e}")
-            import traceback
-            traceback.print_exc()
-            return self._get_fallback_response(message, user_id)
+            print(f"Error generating chat response: {e}")
+            fallback_response = self._get_fallback_response(message, user_id)
+            await self.supabase_service.save_chat_message(user_id, fallback_response, is_user=False)
+            return fallback_response
     
     def _get_fallback_response(self, message: str, user_id: str) -> str:
         """Generate a helpful fallback response when AI is unavailable"""
@@ -285,73 +304,41 @@ class HealthChatService:
         else:
             return "I'm having trouble connecting right now, but I'm here to help with your health journey! Try asking about nutrition, exercise, or your goals."
     
-    def _create_system_prompt(self, context: Dict[str, Any]) -> str:
-        """Create detailed system prompt with user context"""
+    def _create_system_prompt(self, context: Dict[str, Any], recent_conversation: List[Dict] = None) -> str:
+        """Create system prompt with user context and conversation awareness"""
         user_profile = context.get('user_profile', {})
         recent_activity = context.get('recent_activity', {})
         goals_progress = context.get('goals_progress', {})
         
-        # Get goal-specific guidance
-        weight_goal = user_profile.get('weight_goal', 'maintain_weight')
-        goal_guidance = self._get_goal_specific_guidance(weight_goal)
+        # Base prompt (your existing prompt)
+        base_prompt = f"""
+    You are a personalized AI health and fitness coach continuing an ongoing conversation.
+
+    USER PROFILE:
+    - Name: {user_profile.get('name', 'User')}
+    - Current Weight: {user_profile.get('weight', 'Unknown')} kg
+    - Target Weight: {user_profile.get('target_weight', 'Unknown')} kg
+    - Weight Goal: {user_profile.get('weight_goal', 'Unknown')}
+    - TDEE: {user_profile.get('tdee', 'Unknown')} calories/day
+    - Preferred Workouts: {', '.join(user_profile.get('preferred_workouts', []))}
+
+    RECENT ACTIVITY:
+    - Meals this week: {recent_activity.get('meals_this_week', 0)}
+    - Workouts this week: {recent_activity.get('workouts_this_week', 0)}
+    - Weight progress: {goals_progress.get('weight_progress', {}).get('progress_percentage', 0)}%
+
+    CONVERSATION CONTEXT:
+    You are continuing an ongoing conversation. Reference previous topics naturally when relevant.
+    Be consistent with advice given earlier and build upon previous discussions.
+
+    COACHING STYLE:
+    - Be encouraging and reference their progress
+    - Provide specific, actionable advice
+    - Never mention "frameworks" or "plans" - speak naturally
+    - Use their name and reference previous conversations when appropriate
+    """
         
-        prompt = f"""
-You are a personalized AI health and fitness coach. You have access to the user's complete health profile and recent activity data.
-
-USER PROFILE:
-- Name: {user_profile.get('name', 'User')}
-- Age: {user_profile.get('age', 'Unknown')} years old
-- Gender: {user_profile.get('gender', 'Unknown')}
-- Height: {user_profile.get('height', 'Unknown')} cm
-- Current Weight: {user_profile.get('weight', 'Unknown')} kg
-- Target Weight: {user_profile.get('target_weight', 'Unknown')} kg
-- Primary Goal: {user_profile.get('primary_goal', 'General health')}
-- Weight Goal: {user_profile.get('weight_goal', 'Unknown')}
-- Activity Level: {user_profile.get('activity_level', 'Unknown')}
-- BMI: {user_profile.get('bmi', 'Unknown')}
-- TDEE: {user_profile.get('tdee', 'Unknown')} calories/day
-- Fitness Level: {user_profile.get('fitness_level', 'Unknown')}
-- Sleep Target: {user_profile.get('sleep_hours', 'Unknown')} hours
-- Bedtime: {user_profile.get('bedtime', 'Unknown')}
-- Wake Time: {user_profile.get('wakeup_time', 'Unknown')}
-- Dietary Preferences: {', '.join(user_profile.get('dietary_preferences', []))}
-- Medical Conditions: {', '.join(user_profile.get('medical_conditions', []))}
-- Preferred Workouts: {', '.join(user_profile.get('preferred_workouts', []))}
-
-RECENT ACTIVITY (Last 7 days):
-- Meals logged: {recent_activity.get('meals_this_week', 0)}
-- Average daily calories: {recent_activity.get('avg_daily_calories', 0)}
-- Workouts completed: {recent_activity.get('workouts_this_week', 0)}
-- Total exercise minutes: {recent_activity.get('total_exercise_minutes', 0)}
-- Average sleep: {recent_activity.get('avg_sleep_hours', 0)} hours
-- Weight trend: {recent_activity.get('weight_trend', 'unknown')}
-- Supplement adherence: {recent_activity.get('supplement_adherence', 0)}%
-
-PROGRESS TOWARDS GOALS:
-- Weight progress: {goals_progress.get('weight_progress', {}).get('progress_percentage', 0)}% towards target
-- Activity consistency: {goals_progress.get('activity_consistency', {}).get('score', 0)}%
-- Nutrition tracking: {goals_progress.get('nutrition_quality', {}).get('score', 0)}%
-
-{goal_guidance}
-
-COACHING STYLE:
-- Be encouraging and supportive
-- Reference specific data when relevant (e.g., "I see you've logged X calories today")
-- Provide actionable, personalized advice
-- Celebrate achievements and progress
-- Address areas needing improvement with kindness
-- Ask follow-up questions to engage the user
-- Use their name naturally in conversation
-- Be specific about recommendations based on their data
-- Never mention "frameworks" or "plans" - speak naturally about their goals
-
-NEVER say: "According to your framework" or "Your plan suggests"
-ALWAYS say: "For your goals" or "Since you want to lose weight" or "Based on your progress"
-
-Respond naturally and conversationally, incorporating relevant data points to show you understand their journey.
-"""
-        
-        return prompt.strip()
+        return base_prompt.strip()
     
     def _get_goal_specific_guidance(self, weight_goal: str) -> str:
         """Get goal-specific coaching guidance"""

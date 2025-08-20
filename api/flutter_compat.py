@@ -2075,3 +2075,34 @@ async def compare_frameworks():
     except Exception as e:
         print(f"❌ Error comparing frameworks: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/chat/history/{user_id}")
+async def get_chat_history(user_id: str):
+    """Get user's chat history"""
+    try:
+        supabase_service = get_supabase_service()
+        history = await supabase_service.get_conversation_history(user_id)
+        
+        return {
+            "success": True,
+            "messages": history,
+            "count": len(history)
+        }
+    except Exception as e:
+        print(f"❌ Error getting chat history: {e}")
+        return {"success": False, "messages": [], "count": 0}
+
+@router.delete("/chat/history/{user_id}")
+async def clear_chat_history(user_id: str):
+    """Clear user's chat history"""
+    try:
+        supabase_service = get_supabase_service()
+        success = await supabase_service.clear_user_conversation(user_id)
+        
+        return {
+            "success": success,
+            "message": "Chat history cleared" if success else "Failed to clear chat history"
+        }
+    except Exception as e:
+        print(f"❌ Error clearing chat history: {e}")
+        return {"success": False, "message": "Failed to clear chat history"}
