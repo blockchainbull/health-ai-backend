@@ -2081,7 +2081,7 @@ async def get_chat_history(user_id: str):
     """Get user's chat history"""
     try:
         supabase_service = get_supabase_service()
-        history = await supabase_service.get_conversation_history(user_id)
+        history = await supabase_service.get_chat_messages(user_id)
         
         return {
             "success": True,

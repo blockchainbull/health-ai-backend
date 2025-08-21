@@ -250,17 +250,17 @@ class HealthChatService:
             
             # Save user message (no await)
             try:
-                self.supabase_service.save_chat_message(user_id, message, is_user=True)
+                await self.supabase_service.save_chat_message(user_id, message, is_user=True)
             except Exception as e:
                 print(f"Error saving user message: {e}")
             
             # Get user context and recent conversation
-            user_context = self.get_user_context(user_id)
+            user_context = await self.get_user_context(user_id)
             
             # Get recent messages (no await)
             recent_messages = []
             try:
-                recent_messages = self.supabase_service.get_recent_chat_context(user_id, limit=10)
+                recent_messages = await self.supabase_service.get_recent_chat_context(user_id, limit=10)
             except Exception as e:
                 print(f"Error getting recent chat context: {e}")
             
@@ -290,7 +290,7 @@ class HealthChatService:
             
             # Save AI response (no await)
             try:
-                self.supabase_service.save_chat_message(user_id, reply, is_user=False)
+                await self.supabase_service.save_chat_message(user_id, reply, is_user=False)
             except Exception as e:
                 print(f"Error saving AI response: {e}")
             
@@ -303,7 +303,7 @@ class HealthChatService:
             
             # Save fallback response (no await)
             try:
-                self.supabase_service.save_chat_message(user_id, fallback_response, is_user=False)
+                await self.supabase_service.save_chat_message(user_id, fallback_response, is_user=False)
             except Exception as e:
                 print(f"Error saving fallback response: {e}")
                 
