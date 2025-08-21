@@ -1,14 +1,13 @@
 # api/meals.py
 from fastapi import APIRouter, HTTPException
 from typing import Optional
-from datetime import datetime, date
+from datetime import datetime
 import uuid
 
 from models.meal_schemas import (
     MealAnalysisRequest, 
     MealEntryResponse, 
-    MealHistoryResponse,
-    DailyNutritionResponse
+    MealHistoryResponse
 )
 from services.supabase_service import get_supabase_service
 from services.openai_service import get_openai_service

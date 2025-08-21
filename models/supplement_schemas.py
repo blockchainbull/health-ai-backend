@@ -1,7 +1,6 @@
 # models/supplement_schemas.py
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import datetime
 
 class SupplementPreferenceCreate(BaseModel):
     user_id: str

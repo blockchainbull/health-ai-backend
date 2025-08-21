@@ -1,6 +1,5 @@
 # api/users.py
-from fastapi import APIRouter, HTTPException, Depends
-from typing import Dict, Any
+from fastapi import APIRouter, HTTPException
 import uuid
 from datetime import datetime
 import bcrypt

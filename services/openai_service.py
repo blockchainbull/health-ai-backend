@@ -2,8 +2,7 @@
 import openai
 import os
 import json
-from typing import Dict, Any, List
-import asyncio
+from typing import Dict, Any
 
 class OpenAIService:
     def __init__(self):

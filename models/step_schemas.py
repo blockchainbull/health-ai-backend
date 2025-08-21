@@ -1,7 +1,6 @@
 # models/step_schemas.py
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime
 
 class StepEntryCreate(BaseModel):
     userId: str

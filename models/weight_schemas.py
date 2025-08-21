@@ -1,7 +1,6 @@
 # models/weight_schemas.py
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime
 
 class WeightEntryCreate(BaseModel):
     user_id: str

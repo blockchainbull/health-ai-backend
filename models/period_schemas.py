@@ -1,7 +1,6 @@
 # models/period_schemas.py
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import date
 
 class PeriodEntryCreate(BaseModel):
     user_id: str

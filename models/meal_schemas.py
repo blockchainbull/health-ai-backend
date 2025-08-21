@@ -1,7 +1,6 @@
 # models/meal_schemas.py
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
-from datetime import datetime
+from typing import Optional
 
 class MealAnalysisRequest(BaseModel):
     user_id: str

@@ -1,7 +1,6 @@
 # models/exercise_schemas.py
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime
 
 class ExerciseLogCreate(BaseModel):
     user_id: str

@@ -1,7 +1,6 @@
 # models/sleep_schemas.py
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import datetime
 
 class SleepEntryCreate(BaseModel):
     user_id: str
