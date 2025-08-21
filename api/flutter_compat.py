@@ -2137,3 +2137,40 @@ async def clear_chat_messages(user_id: str):
     except Exception as e:
         print(f"Error clearing chat messages: {e}")
         return {"success": False, "message": "Failed to clear messages"}
+    
+@router.get("/chat/sessions/{user_id}")
+async def get_user_chat_sessions(user_id: str):
+    """Get all chat sessions for a user"""
+    try:
+        supabase_service = get_supabase_service()
+        
+        response = supabase_service.client.table("chat_sessions")\
+            .select("*")\
+            .eq("user_id", user_id)\
+            .order("created_at", desc=True)\
+            .execute()
+        
+        return {
+            "success": True,
+            "sessions": response.data or [],
+            "count": len(response.data or [])
+        }
+    except Exception as e:
+        print(f"Error getting chat sessions: {e}")
+        return {"success": False, "sessions": [], "count": 0}
+
+@router.get("/chat/messages/{user_id}/{session_id}")
+async def get_session_messages(user_id: str, session_id: str):
+    """Get messages for a specific session"""
+    try:
+        supabase_service = get_supabase_service()
+        messages = await supabase_service.get_chat_messages(user_id, session_id=session_id)
+        
+        return {
+            "success": True,
+            "messages": messages,
+            "count": len(messages)
+        }
+    except Exception as e:
+        print(f"Error getting session messages: {e}")
+        return {"success": False, "messages": [], "count": 0}

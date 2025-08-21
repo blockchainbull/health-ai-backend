@@ -932,27 +932,39 @@ class SupabaseService:
     async def save_chat_message(self, user_id: str, message: str, is_user: bool) -> bool:
         """Save a chat message"""
         try:
-            self.client.table("chat_messages").insert({
+            # Get or create today's session
+            session_id = await self.get_or_create_daily_session(user_id)
+            
+            message_data = {
                 "user_id": user_id,
                 "message": message,
                 "is_user": is_user,
                 "created_at": datetime.now(timezone.utc).isoformat()
-            }).execute()
+            }
+            
+            # Add session_id if we have one
+            if session_id:
+                message_data["session_id"] = session_id
+            
+            self.client.table("chat_messages").insert(message_data).execute()
             return True
         except Exception as e:
             print(f"Error saving chat message: {e}")
             return False
 
-    async def get_chat_messages(self, user_id: str, limit: int = 50) -> List[Dict]:
+    async def get_chat_messages(self, user_id: str, limit: int = 50, session_id: str = None) -> List[Dict]:
         """Get chat messages for a user"""
         try:
-            result = self.client.table("chat_messages")\
+            query = self.client.table("chat_messages")\
                 .select("*")\
                 .eq("user_id", user_id)\
                 .order("created_at", desc=False)\
-                .limit(limit)\
-                .execute()
+                .limit(limit)
             
+            if session_id:
+                query = query.eq("session_id", session_id)
+            
+            result = query.execute()
             return result.data if result.data else []
         except Exception as e:
             print(f"Error getting chat messages: {e}")
@@ -985,6 +997,48 @@ class SupabaseService:
         except Exception as e:
             print(f"Error getting recent chat context: {e}")
             return []
+    
+    async def create_chat_session(self, user_id: str, title: str = None) -> Dict[str, Any]:
+        """Create a new chat session"""
+        try:
+            session_data = {
+                "user_id": user_id,
+                "title": title or "New Chat",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+            
+            response = self.client.table("chat_sessions").insert(session_data).execute()
+            return response.data[0]
+        except Exception as e:
+            print(f"Error creating chat session: {e}")
+            raise e
+
+    async def get_or_create_daily_session(self, user_id: str) -> str:
+        """Get today's session or create a new one"""
+        try:
+            today = datetime.now().date()
+            
+            # Look for today's session
+            response = self.client.table("chat_sessions")\
+                .select("id")\
+                .eq("user_id", user_id)\
+                .gte("created_at", f"{today}T00:00:00")\
+                .lte("created_at", f"{today}T23:59:59")\
+                .order("created_at", desc=True)\
+                .limit(1)\
+                .execute()
+            
+            if response.data:
+                return response.data[0]["id"]
+            
+            # Create new session for today
+            session = await self.create_chat_session(user_id, f"Health Chat - {today}")
+            return session["id"]
+        except Exception as e:
+            print(f"Error getting/creating daily session: {e}")
+            # Fallback - continue without session_id
+            return None
 
 # Global instance - we'll initialize this in main.py
 supabase_service = None
