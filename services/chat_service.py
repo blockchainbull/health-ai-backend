@@ -248,12 +248,21 @@ class HealthChatService:
         try:
             print(f"Generating chat response for user: {user_id}")
             
-            # Save user message
-            await self.supabase_service.save_chat_message(user_id, message, is_user=True)
+            # Save user message (no await)
+            try:
+                self.supabase_service.save_chat_message(user_id, message, is_user=True)
+            except Exception as e:
+                print(f"Error saving user message: {e}")
             
             # Get user context and recent conversation
-            user_context = await self.get_user_context(user_id)
-            recent_messages = await self.supabase_service.get_recent_chat_context(user_id, limit=10)
+            user_context = self.get_user_context(user_id)
+            
+            # Get recent messages (no await)
+            recent_messages = []
+            try:
+                recent_messages = self.supabase_service.get_recent_chat_context(user_id, limit=10)
+            except Exception as e:
+                print(f"Error getting recent chat context: {e}")
             
             # Create system prompt
             system_prompt = self._create_system_prompt(user_context)
@@ -263,8 +272,8 @@ class HealthChatService:
             
             # Add recent conversation context
             for msg in recent_messages:
-                role = "user" if msg["is_user"] else "assistant"
-                messages.append({"role": role, "content": msg["message"]})
+                role = "user" if msg.get("is_user") else "assistant"
+                messages.append({"role": role, "content": msg.get("message", "")})
             
             # Add current message
             messages.append({"role": "user", "content": message})
@@ -279,8 +288,11 @@ class HealthChatService:
             
             reply = response.choices[0].message.content.strip()
             
-            # Save AI response
-            await self.supabase_service.save_chat_message(user_id, reply, is_user=False)
+            # Save AI response (no await)
+            try:
+                self.supabase_service.save_chat_message(user_id, reply, is_user=False)
+            except Exception as e:
+                print(f"Error saving AI response: {e}")
             
             print(f"Generated and saved response: {len(reply)} characters")
             return reply
@@ -288,7 +300,13 @@ class HealthChatService:
         except Exception as e:
             print(f"Error generating chat response: {e}")
             fallback_response = self._get_fallback_response(message, user_id)
-            await self.supabase_service.save_chat_message(user_id, fallback_response, is_user=False)
+            
+            # Save fallback response (no await)
+            try:
+                self.supabase_service.save_chat_message(user_id, fallback_response, is_user=False)
+            except Exception as e:
+                print(f"Error saving fallback response: {e}")
+                
             return fallback_response
     
     def _get_fallback_response(self, message: str, user_id: str) -> str:

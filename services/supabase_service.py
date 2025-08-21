@@ -3,7 +3,7 @@ from supabase import create_client, Client
 import os
 from typing import Dict, List, Optional, Any
 import uuid
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timezone, timedelta
 
 class SupabaseService:
     def __init__(self):
@@ -928,79 +928,11 @@ class SupabaseService:
         except Exception as e:
             print(f"❌ Error deleting period entry: {e}")
             return False
-        
-    async def save_conversation_message(self, user_id: str, message: str, is_user: bool) -> bool:
-        """Save a single message to the conversation"""
-        try:
-            # Get or create conversation for user
-            conversation = await self.get_user_conversation(user_id)
-            
-            message_data = {
-                "message": message,
-                "is_user": is_user,
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            }
-            
-            if conversation:
-                # Update existing conversation
-                updated_messages = conversation['conversation'] + [message_data]
-                await self.client.table("conversations").update({
-                    "conversation": updated_messages,
-                    "updated_at": datetime.now(timezone.utc).isoformat()
-                }).eq("user_id", user_id).execute()
-            else:
-                # Create new conversation
-                await self.client.table("conversations").insert({
-                    "user_id": user_id,
-                    "conversation": [message_data],
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                    "updated_at": datetime.now(timezone.utc).isoformat()
-                }).execute()
-            
-            return True
-        except Exception as e:
-            print(f"❌ Error saving conversation message: {e}")
-            return False
-
-    async def get_user_conversation(self, user_id: str) -> Optional[Dict]:
-        """Get user's conversation history"""
-        try:
-            result = await self.client.table("conversations").select("*").eq("user_id", user_id).single().execute()
-            return result.data if result.data else None
-        except Exception as e:
-            print(f"⚠️ No existing conversation found for user {user_id}: {e}")
-            return None
-
-    async def get_conversation_history(self, user_id: str, limit: int = 50) -> List[Dict]:
-        """Get formatted conversation history for chat display"""
-        try:
-            conversation = await self.get_user_conversation(user_id)
-            if not conversation:
-                return []
-            
-            messages = conversation.get('conversation', [])
-            # Return last N messages
-            return messages[-limit:] if len(messages) > limit else messages
-        except Exception as e:
-            print(f"❌ Error getting conversation history: {e}")
-            return []
-
-    async def clear_user_conversation(self, user_id: str) -> bool:
-        """Clear user's conversation history"""
-        try:
-            await self.client.table("conversations").update({
-                "conversation": [],
-                "updated_at": datetime.now(timezone.utc).isoformat()
-            }).eq("user_id", user_id).execute()
-            return True
-        except Exception as e:
-            print(f"❌ Error clearing conversation: {e}")
-            return False
     
     async def save_chat_message(self, user_id: str, message: str, is_user: bool) -> bool:
         """Save a chat message"""
         try:
-            await self.client.table("chat_messages").insert({
+            self.client.table("chat_messages").insert({
                 "user_id": user_id,
                 "message": message,
                 "is_user": is_user,
@@ -1014,7 +946,7 @@ class SupabaseService:
     async def get_chat_messages(self, user_id: str, limit: int = 50) -> List[Dict]:
         """Get chat messages for a user"""
         try:
-            result = await self.client.table("chat_messages")\
+            result = self.client.table("chat_messages")\
                 .select("*")\
                 .eq("user_id", user_id)\
                 .order("created_at", desc=False)\
@@ -1029,7 +961,7 @@ class SupabaseService:
     async def clear_chat_messages(self, user_id: str) -> bool:
         """Clear all chat messages for a user"""
         try:
-            await self.client.table("chat_messages")\
+            self.client.table("chat_messages")\
                 .delete()\
                 .eq("user_id", user_id)\
                 .execute()
@@ -1041,7 +973,7 @@ class SupabaseService:
     async def get_recent_chat_context(self, user_id: str, limit: int = 10) -> List[Dict]:
         """Get recent messages for AI context"""
         try:
-            result = await self.client.table("chat_messages")\
+            result = self.client.table("chat_messages")\
                 .select("message, is_user, created_at")\
                 .eq("user_id", user_id)\
                 .order("created_at", desc=True)\

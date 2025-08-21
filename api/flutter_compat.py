@@ -2112,7 +2112,7 @@ async def get_chat_messages(user_id: str, limit: int = 50):
     """Get chat messages for a user"""
     try:
         supabase_service = get_supabase_service()
-        messages = await supabase_service.get_chat_messages(user_id, limit)
+        messages = supabase_service.get_chat_messages(user_id, limit)
         
         return {
             "success": True,
