@@ -1248,7 +1248,7 @@ async def get_sleep_history(user_id: str, limit: int = 30):
 async def get_sleep_entry_by_date(user_id: str, date: str):
     """Get sleep entry for a specific date"""
     try:
-        print(f"😴 Getting sleep entry for user: {user_id}, date: {date}")
+        print(f"Getting sleep entry for user: {user_id}, date: {date}")
         
         supabase_service = get_supabase_service()
         
@@ -1277,19 +1277,29 @@ async def get_sleep_entry_by_date(user_id: str, date: str):
                 'updated_at': entry.get('updated_at')
             }
             
-            print(f"✅ Found sleep entry: {formatted_entry}")
-            return formatted_entry
+            print(f"Found sleep entry: {formatted_entry}")
+            # Return consistent structure like other endpoints
+            return {
+                "success": True,
+                "entry": formatted_entry
+            }
         else:
-            print(f"❌ No sleep entry found for {user_id} on {date}")
-            raise HTTPException(status_code=404, detail="Sleep entry not found")
+            print(f"No sleep entry found for {user_id} on {date}")
+            # Return null entry instead of 404 error - consistent with water endpoint
+            return {
+                "success": True,
+                "entry": None
+            }
         
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Error getting sleep entry by date: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error getting sleep entry by date: {e}")
+        return {
+            "success": False,
+            "entry": None,
+            "error": str(e)
+        }
 
 @router.put("/sleep/entries/{entry_id}")
 async def update_sleep_entry(entry_id: str, sleep_data: SleepEntryUpdate):
