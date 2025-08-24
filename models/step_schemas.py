@@ -24,7 +24,7 @@ class StepEntryUpdate(BaseModel):
 
 class StepEntryResponse(BaseModel):
     id: str
-    user_id: str  # Changed from userId
+    userid: str  # Changed from userId
     date: str
     steps: int
     goal: int
