@@ -4,7 +4,6 @@ import uuid
 from datetime import datetime
 import bcrypt
 from models.schemas import UserUpdate
-
 from models.schemas import UserCreate, UserResponse, UserLogin, UserLoginResponse
 from services.supabase_service import get_supabase_service 
 
@@ -184,15 +183,26 @@ async def get_user(user_id: str):
 @router.put("/update-user/{user_id}")
 async def update_user(user_id: str, user_data: UserUpdate):
     try:
+        print(f"🔄 Updating user: {user_id}")
+        print(f"🔄 Update data: {user_data.dict(exclude_unset=True)}")
+        
         supabase_service = get_supabase_service()
         
         # Convert to dict and remove None values
-        update_data = {k: v for k, v in user_data.dict().items() if v is not None}
+        update_data = {k: v for k, v in user_data.dict(exclude_unset=True).items() if v is not None}
+        
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No data provided for update")
         
         updated_user = await supabase_service.update_user(user_id, update_data)
         
+        if not updated_user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
         return {"success": True, "user": updated_user}
         
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"❌ Error updating user: {e}")
         raise HTTPException(status_code=500, detail=str(e))
