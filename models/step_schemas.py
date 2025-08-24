@@ -1,37 +1,46 @@
 # models/step_schemas.py
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 class StepEntryCreate(BaseModel):
-    userid: str  # Changed from userId
+    user_id: str = Field(alias="userId")
     date: str
     steps: int = 0
     goal: int = 10000
-    calories_burned: float = 0.0  # Changed from caloriesBurned
-    distance_km: float = 0.0      # Changed from distanceKm
-    active_minutes: int = 0       # Changed from activeMinutes
-    source_type: str = 'manual'   # Changed from sourceType
-    last_synced: Optional[str] = None  # Changed from lastSynced
+    calories_burned: float = Field(default=0.0, alias="caloriesBurned")
+    distance_km: float = Field(default=0.0, alias="distanceKm")
+    active_minutes: int = Field(default=0, alias="activeMinutes")
+    source_type: str = Field(default='manual', alias="sourceType")
+    last_synced: Optional[str] = Field(default=None, alias="lastSynced")
+
+    class Config:
+        allow_population_by_field_name = True
 
 class StepEntryUpdate(BaseModel):
     steps: Optional[int] = None
     goal: Optional[int] = None
-    calories_burned: Optional[float] = None  # Changed from caloriesBurned
-    distance_km: Optional[float] = None      # Changed from distanceKm
-    active_minutes: Optional[int] = None     # Changed from activeMinutes
-    source_type: Optional[str] = None        # Changed from sourceType
-    last_synced: Optional[str] = None        # Changed from lastSynced
+    calories_burned: Optional[float] = Field(default=None, alias="caloriesBurned")
+    distance_km: Optional[float] = Field(default=None, alias="distanceKm")
+    active_minutes: Optional[int] = Field(default=None, alias="activeMinutes")
+    source_type: Optional[str] = Field(default=None, alias="sourceType")
+    last_synced: Optional[str] = Field(default=None, alias="lastSynced")
+
+    class Config:
+        allow_population_by_field_name = True
 
 class StepEntryResponse(BaseModel):
     id: str
-    userid: str  # Changed from userId
+    user_id: str = Field(alias="userId")
     date: str
     steps: int
     goal: int
-    calories_burned: float  # Changed from caloriesBurned
-    distance_km: float      # Changed from distanceKm
-    active_minutes: int     # Changed from activeMinutes
-    source_type: str        # Changed from sourceType
-    last_synced: Optional[str]  # Changed from lastSynced
-    created_at: Optional[str]   # Changed from createdAt
-    updated_at: Optional[str]   # Changed from updatedAt
+    calories_burned: float = Field(alias="caloriesBurned")
+    distance_km: float = Field(alias="distanceKm")
+    active_minutes: int = Field(alias="activeMinutes")
+    source_type: str = Field(alias="sourceType")
+    last_synced: Optional[str] = Field(alias="lastSynced")
+    created_at: Optional[str] = Field(alias="createdAt")
+    updated_at: Optional[str] = Field(alias="updatedAt")
+
+    class Config:
+        allow_population_by_field_name = True
