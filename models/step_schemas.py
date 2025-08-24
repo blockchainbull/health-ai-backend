@@ -3,35 +3,35 @@ from pydantic import BaseModel
 from typing import Optional
 
 class StepEntryCreate(BaseModel):
-    userId: str
+    user_id: str  # Changed from userId
     date: str
     steps: int = 0
     goal: int = 10000
-    caloriesBurned: float = 0.0
-    distanceKm: float = 0.0
-    activeMinutes: int = 0
-    sourceType: str = 'manual'
-    lastSynced: Optional[str] = None
+    calories_burned: float = 0.0  # Changed from caloriesBurned
+    distance_km: float = 0.0      # Changed from distanceKm
+    active_minutes: int = 0       # Changed from activeMinutes
+    source_type: str = 'manual'   # Changed from sourceType
+    last_synced: Optional[str] = None  # Changed from lastSynced
 
 class StepEntryUpdate(BaseModel):
     steps: Optional[int] = None
     goal: Optional[int] = None
-    caloriesBurned: Optional[float] = None
-    distanceKm: Optional[float] = None
-    activeMinutes: Optional[int] = None
-    sourceType: Optional[str] = None
-    lastSynced: Optional[str] = None
+    calories_burned: Optional[float] = None  # Changed from caloriesBurned
+    distance_km: Optional[float] = None      # Changed from distanceKm
+    active_minutes: Optional[int] = None     # Changed from activeMinutes
+    source_type: Optional[str] = None        # Changed from sourceType
+    last_synced: Optional[str] = None        # Changed from lastSynced
 
 class StepEntryResponse(BaseModel):
     id: str
-    userId: str
+    user_id: str  # Changed from userId
     date: str
     steps: int
     goal: int
-    caloriesBurned: float
-    distanceKm: float
-    activeMinutes: int
-    sourceType: str
-    lastSynced: Optional[str]
-    createdAt: Optional[str]
-    updatedAt: Optional[str]
+    calories_burned: float  # Changed from caloriesBurned
+    distance_km: float      # Changed from distanceKm
+    active_minutes: int     # Changed from activeMinutes
+    source_type: str        # Changed from sourceType
+    last_synced: Optional[str]  # Changed from lastSynced
+    created_at: Optional[str]   # Changed from createdAt
+    updated_at: Optional[str]   # Changed from updatedAt
