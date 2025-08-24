@@ -75,25 +75,27 @@ class SupabaseService:
             print(f"❌ Error getting user by email: {e}")
             return None
     
-    async def update_user(self, user_id: str, update_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Update user data"""
+    async def update_user(self, user_id: str, user_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Update user profile including step goal"""
         try:
-            print(f"🔍 Updating user: {user_id}")
-            
-            # Add updated timestamp
-            update_data['updated_at'] = datetime.utcnow().isoformat()
-            
-            response = self.client.table('users').update(update_data).eq('id', user_id).execute()
-            
+            response = self.client.table('users').update(user_data).eq('id', user_id).execute()
             if response.data:
-                print(f"✅ User updated successfully: {user_id}")
                 return response.data[0]
             else:
-                print(f"❌ User update failed: {user_id}")
-                return None
-                
+                raise Exception("No data returned from Supabase")
         except Exception as e:
             print(f"❌ Error updating user: {e}")
+            raise Exception(f"Failed to update user: {str(e)}")
+
+    async def get_user(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get user profile including step goal"""
+        try:
+            response = self.client.table('users').select('*').eq('id', user_id).execute()
+            if response.data:
+                return response.data[0]
+            return None
+        except Exception as e:
+            print(f"❌ Error getting user: {e}")
             return None
     
     # Meal Operations (we'll expand this later)

@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException
 import uuid
 from datetime import datetime
 import bcrypt
+from models.schemas import UserUpdate
 
 from models.schemas import UserCreate, UserResponse, UserLogin, UserLoginResponse
 from services.supabase_service import get_supabase_service 
@@ -178,6 +179,22 @@ async def get_user(user_id: str):
         
     except Exception as e:
         print(f"❌ Error getting user: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.put("/update-user/{user_id}")
+async def update_user(user_id: str, user_data: UserUpdate):
+    try:
+        supabase_service = get_supabase_service()
+        
+        # Convert to dict and remove None values
+        update_data = {k: v for k, v in user_data.dict().items() if v is not None}
+        
+        updated_user = await supabase_service.update_user(user_id, update_data)
+        
+        return {"success": True, "user": updated_user}
+        
+    except Exception as e:
+        print(f"❌ Error updating user: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/")

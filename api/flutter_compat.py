@@ -893,13 +893,36 @@ async def get_all_steps(user_id: str, limit: int = 100):
 
 @router.get("/steps/{user_id}/today")
 async def get_today_steps(user_id: str):
-    """Get today's step entry"""
+    """Get today's step entry with user's default goal"""
     try:
         print(f"🚶 Getting today's steps for user: {user_id}")
         
         supabase_service = get_supabase_service()
         today = datetime.now().date()
+        
+        # Get user's step goal preference
+        user = await supabase_service.get_user(user_id)
+        user_step_goal = user.get('daily_step_goal', 10000) if user else 10000
+        
+        # Get today's entry
         entry = await supabase_service.get_step_entry_by_date(user_id, today)
+        
+        if not entry:
+            # Create virtual entry with user's goal
+            entry = {
+                'id': None,
+                'user_id': user_id,
+                'date': str(today),
+                'steps': 0,
+                'goal': user_step_goal,  # Use user's preference
+                'calories_burned': 0.0,
+                'distance_km': 0.0,
+                'active_minutes': 0,
+                'source_type': 'none',
+                'last_synced': None,
+                'created_at': None,
+                'updated_at': None
+            }
         
         return {"success": True, "entry": entry}
         
@@ -946,12 +969,16 @@ async def delete_step_entry(user_id: str, date: str):
 
 @router.get("/steps/{user_id}/stats")
 async def get_step_stats(user_id: str, days: int = 7):
-    """Get step statistics for the last N days"""
+    """Get step statistics using user's default goal"""
     try:
         print(f"🚶 Getting step stats for user: {user_id}, last {days} days")
         
         supabase_service = get_supabase_service()
         entries = await supabase_service.get_step_history(user_id, days)
+        
+        # Get user's default goal
+        user = await supabase_service.get_user(user_id)
+        user_step_goal = user.get('daily_step_goal', 10000) if user else 10000
         
         if not entries:
             return {
@@ -967,9 +994,12 @@ async def get_step_stats(user_id: str, days: int = 7):
                 }
             }
         
-        # Calculate statistics
+        # Calculate statistics using user's goal as fallback
         daily_steps = [entry.get('steps', 0) for entry in entries]
-        goal_achievements = [entry.get('steps', 0) >= entry.get('goal', 10000) for entry in entries]
+        goal_achievements = [
+            entry.get('steps', 0) >= entry.get('goal', user_step_goal)  # Use user goal as fallback
+            for entry in entries
+        ]
         
         stats = {
             "average_daily_steps": round(sum(daily_steps) / len(daily_steps)),
