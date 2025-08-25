@@ -3,15 +3,15 @@ from pydantic import BaseModel, Field
 from typing import Optional
 
 class StepEntryCreate(BaseModel):
-    user_id: str = Field(alias="userId")
+    userId: str = Field(alias="userId")  # Change attribute name to camelCase
     date: str
     steps: int = 0
     goal: int = 10000
-    calories_burned: float = Field(default=0.0, alias="caloriesBurned")
-    distance_km: float = Field(default=0.0, alias="distanceKm")
-    active_minutes: int = Field(default=0, alias="activeMinutes")
-    source_type: str = Field(default='manual', alias="sourceType")
-    last_synced: Optional[str] = Field(default=None, alias="lastSynced")
+    caloriesBurned: float = Field(default=0.0, alias="caloriesBurned")
+    distanceKm: float = Field(default=0.0, alias="distanceKm")
+    activeMinutes: int = Field(default=0, alias="activeMinutes")
+    sourceType: str = Field(default='manual', alias="sourceType")
+    lastSynced: Optional[str] = Field(default=None, alias="lastSynced")
 
     class Config:
         allow_population_by_field_name = True
