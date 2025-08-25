@@ -797,8 +797,7 @@ def _calculate_water_streak(achievements: List[bool]) -> int:
 async def save_step_entry(step_data: StepEntryCreate):
     """Save or update daily step entry"""
     try:
-        # Change from step_data.userId to step_data.user_id
-        print(f"🚶 Saving step entry: {step_data.steps} steps for user {step_data.user_id}")
+        print(f"🚶 Saving step entry: {step_data.steps} steps for user {step_data.userId}")
         
         supabase_service = get_supabase_service()
         
@@ -809,22 +808,21 @@ async def save_step_entry(step_data: StepEntryCreate):
             entry_date = datetime.now().date()
         
         # Check if entry exists for this date
-        # Change from step_data.userId to step_data.user_id
         existing_entry = await supabase_service.get_step_entry_by_date(
-            step_data.user_id,  # Changed from step_data.userId
+            step_data.userId, 
             entry_date
         )
         
         step_entry_data = {
-            'user_id': step_data.user_id,  # Changed from step_data.userId
+            'user_id': step_data.userId,
             'date': str(entry_date),
             'steps': step_data.steps,
             'goal': step_data.goal,
-            'calories_burned': step_data.calories_burned,  # Also change these to snake_case
-            'distance_km': step_data.distance_km,
-            'active_minutes': step_data.active_minutes,
-            'source_type': step_data.source_type,
-            'last_synced': step_data.last_synced,
+            'calories_burned': step_data.caloriesBurned,
+            'distance_km': step_data.distanceKm,
+            'active_minutes': step_data.activeMinutes,
+            'source_type': step_data.sourceType,
+            'last_synced': step_data.lastSynced,
             'updated_at': datetime.now().isoformat()
         }
         
