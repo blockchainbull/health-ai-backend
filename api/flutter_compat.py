@@ -1,5 +1,5 @@
 # api/flutter_compat.py
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel
 from datetime import datetime, timedelta
@@ -17,7 +17,8 @@ from models.exercise_schemas import ExerciseLogCreate
 from models.period_schemas import PeriodEntryCreate
 from services.chat_service import get_chat_service
 from services.goal_frameworks import WeightGoalFrameworks
-
+from utils.timezone_utils import get_timezone_offset, get_user_date, get_user_today, get_user_now
+    
 
 router = APIRouter()
 
@@ -375,39 +376,11 @@ async def auth_login(login_data: dict):
         print(f"❌ Login error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     
-@router.get("/debug/meals/{user_id}/{date}")
-async def debug_meal_data(user_id: str, date: str):
-    """Debug endpoint to check raw meal data"""
-    try:
-        supabase_service = get_supabase_service()
-        meals = await supabase_service.get_user_meals_by_date(user_id, date)
-        
-        print(f"🔍 Raw meal data for {user_id} on {date}:")
-        for i, meal in enumerate(meals):
-            print(f"  Meal {i+1}: {meal.get('food_item')}")
-            print(f"    Raw meal data: {meal}")
-            print(f"    fiber_g: {meal.get('fiber_g')} (type: {type(meal.get('fiber_g'))})")
-            print(f"    sugar_g: {meal.get('sugar_g')} (type: {type(meal.get('sugar_g'))})")
-            print(f"    sodium_mg: {meal.get('sodium_mg')} (type: {type(meal.get('sodium_mg'))})")
-        
-        return {
-            "success": True,
-            "raw_meals": meals,
-            "count": len(meals)
-        }
-        
-    except Exception as e:
-        print(f"❌ Debug error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    
 @router.get("/daily-summary/{user_id}")
-async def get_daily_summary_flutter(user_id: str, date: str = None):
+async def get_daily_summary_flutter(user_id: str, date: str = None, tz_offset: int = Depends(get_timezone_offset)):
     """Get daily summary for Flutter app with all nutrition data"""
     try:
-        if date:
-            target_date = datetime.fromisoformat(date.replace('Z', '+00:00')).date()
-        else:
-            target_date = datetime.now().date()
+        target_date = get_user_date(date, tz_offset) if date else get_user_today(tz_offset)
         
         print(f"📊 Getting daily summary for user {user_id} on {target_date}")
         
@@ -477,7 +450,7 @@ async def get_daily_summary_flutter(user_id: str, date: str = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/meals/analyze")
-async def analyze_meal_flutter(meal_data: dict):
+async def analyze_meal_flutter(meal_data: dict, tz_offset: int = Depends(get_timezone_offset)):
     """Analyze meal for Flutter app"""
     try:
         print(f"🍽️ Flutter meal analysis: {meal_data}")
@@ -540,9 +513,9 @@ async def analyze_meal_flutter(meal_data: dict):
             'nutrition_data': nutrition_data,
             'data_source': 'ai',
             'confidence_score': 0.8,
-            'meal_date': datetime.now().isoformat(),
-            'logged_at': datetime.now().isoformat(),
-            'updated_at': datetime.now().isoformat()
+            'meal_date': get_user_now(tz_offset).isoformat(),
+            'logged_at': get_user_now(tz_offset).isoformat(),
+            'updated_at': get_user_now(tz_offset).isoformat()
         }
         
         print(f"🔍 Meal entry to save: {meal_entry}")
@@ -586,7 +559,7 @@ async def analyze_meal_flutter(meal_data: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/meals/history/{user_id}")
-async def get_meal_history_flutter(user_id: str, limit: int = 50, date: str = None):
+async def get_meal_history_flutter(user_id: str, limit: int = 50, date: str = None, tz_offset: int = Depends(get_timezone_offset)):
     """Get meal history for Flutter app"""
     try:
         print(f"🍽️ Getting meal history for user: {user_id}, limit: {limit}, date: {date}")
@@ -594,7 +567,7 @@ async def get_meal_history_flutter(user_id: str, limit: int = 50, date: str = No
         supabase_service = get_supabase_service()
         
         if date:
-            date_only = date.split('T')[0]
+            date_only = str(get_user_date(date, tz_offset))
             meals = await supabase_service.get_user_meals_by_date(user_id, date_only)
         else:
             meals = await supabase_service.get_user_meals(user_id, limit=limit)
@@ -652,7 +625,7 @@ async def get_meal_history_flutter(user_id: str, limit: int = 50, date: str = No
     
 # Water logging
 @router.post("/water", response_model=dict)
-async def save_water_entry(water_data: WaterEntryCreate):
+async def save_water_entry(water_data: WaterEntryCreate,tz_offset: int = Depends(get_timezone_offset)):
     """Save or update daily water intake"""
     try:
         print(f"💧 Saving water entry: {water_data.glasses_consumed} glasses for user {water_data.user_id}")
@@ -661,9 +634,9 @@ async def save_water_entry(water_data: WaterEntryCreate):
         
         # Parse date and convert to date only (not datetime)
         try:
-            entry_date = datetime.fromisoformat(water_data.date.replace('Z', '+00:00')).date()
+            entry_date = get_user_date(water_data.date, tz_offset)
         except ValueError:
-            entry_date = datetime.now().date()
+            entry_date = get_user_today(tz_offset)
         
         # Check if entry exists for this date
         existing_entry = await supabase_service.get_water_entry_by_date(
@@ -700,13 +673,13 @@ async def save_water_entry(water_data: WaterEntryCreate):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/water/{user_id}/today")
-async def get_today_water(user_id: str):
+async def get_today_water(user_id: str, tz_offset: int = Depends(get_timezone_offset)):
     """Get today's water intake"""
     try:
         print(f"💧 Getting today's water for user: {user_id}")
         
         supabase_service = get_supabase_service()
-        today = datetime.now().date()  # Get today's date
+        today = get_user_today(tz_offset)
         entry = await supabase_service.get_water_entry_by_date(user_id, today)
         
         return {"success": True, "entry": entry}
@@ -794,7 +767,7 @@ def _calculate_water_streak(achievements: List[bool]) -> int:
     return streak
 
 @router.post("/steps", response_model=dict)
-async def save_step_entry(step_data: StepEntryCreate):
+async def save_step_entry(step_data: StepEntryCreate, tz_offset: int = Depends(get_timezone_offset)):
     """Save or update daily step entry"""
     try:
         print(f"🚶 Saving step entry: {step_data.steps} steps for user {step_data.userId}")
@@ -803,9 +776,9 @@ async def save_step_entry(step_data: StepEntryCreate):
         
         # Parse date
         try:
-            entry_date = datetime.fromisoformat(step_data.date.replace('Z', '+00:00')).date()
+            entry_date = get_user_date(step_data.date, tz_offset)
         except ValueError:
-            entry_date = datetime.now().date()
+            entry_date = get_user_today(tz_offset)
         
         # Check if entry exists for this date
         existing_entry = await supabase_service.get_step_entry_by_date(
@@ -823,7 +796,7 @@ async def save_step_entry(step_data: StepEntryCreate):
             'active_minutes': step_data.activeMinutes,
             'source_type': step_data.sourceType,
             'last_synced': step_data.lastSynced,
-            'updated_at': datetime.now().isoformat()
+            'updated_at': get_user_now(tz_offset).isoformat()
         }
         
         if existing_entry:
@@ -892,13 +865,13 @@ async def get_all_steps(user_id: str, limit: int = 100):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/steps/{user_id}/today")
-async def get_today_steps(user_id: str):
+async def get_today_steps(user_id: str, tz_offset: int = Depends(get_timezone_offset)):
     """Get today's step entry with user's default goal"""
     try:
         print(f"🚶 Getting today's steps for user: {user_id}")
         
         supabase_service = get_supabase_service()
-        today = datetime.now().date()
+        today = get_user_today(tz_offset)
         
         # Get user's step goal preference
         user = await supabase_service.get_user(user_id)
@@ -946,7 +919,7 @@ async def get_steps_in_range(user_id: str, start_date: str, end_date: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/steps/{user_id}/{date}")
-async def delete_step_entry(user_id: str, date: str):
+async def delete_step_entry(user_id: str, date: str, tz_offset: int = Depends(get_timezone_offset)):
     """Delete a step entry for a specific date"""
     try:
         print(f"🚶 Deleting step entry for user: {user_id}, date: {date}")
@@ -954,7 +927,7 @@ async def delete_step_entry(user_id: str, date: str):
         supabase_service = get_supabase_service()
         
         # Parse date
-        entry_date = datetime.fromisoformat(date.replace('Z', '+00:00')).date()
+        entry_date = get_user_date(date, tz_offset)
         
         success = await supabase_service.delete_step_entry_by_date(user_id, entry_date)
         
@@ -997,7 +970,7 @@ async def get_step_stats(user_id: str, days: int = 7):
         # Calculate statistics using user's goal as fallback
         daily_steps = [entry.get('steps', 0) for entry in entries]
         goal_achievements = [
-            entry.get('steps', 0) >= entry.get('goal', user_step_goal)  # Use user goal as fallback
+            entry.get('steps', 0) >= entry.get('goal', user_step_goal)  
             for entry in entries
         ]
         
@@ -1028,7 +1001,7 @@ def _calculate_step_streak(achievements: List[bool]) -> int:
     return streak
 
 @router.post("/weight", response_model=dict)
-async def save_weight_entry(weight_data: WeightEntryCreate):
+async def save_weight_entry(weight_data: WeightEntryCreate, tz_offset: int = Depends(get_timezone_offset)):
     """Save or update weight entry"""
     try:
         print(f"⚖️ Saving weight entry: {weight_data.weight} kg for user {weight_data.user_id}")
@@ -1037,9 +1010,9 @@ async def save_weight_entry(weight_data: WeightEntryCreate):
         
         # Parse date
         try:
-            entry_date = datetime.fromisoformat(weight_data.date.replace('Z', '+00:00'))
+            entry_date = get_user_date(weight_data.date, tz_offset)
         except ValueError:
-            entry_date = datetime.now()
+            entry_date = get_user_now(tz_offset)
         
         weight_entry_data = {
             'user_id': weight_data.user_id,
@@ -1048,7 +1021,7 @@ async def save_weight_entry(weight_data: WeightEntryCreate):
             'notes': weight_data.notes,
             'body_fat_percentage': weight_data.body_fat_percentage,
             'muscle_mass_kg': weight_data.muscle_mass_kg,
-            'updated_at': datetime.now().isoformat()
+            'updated_at': get_user_now(tz_offset).isoformat()
         }
         
         # Always create new entry for weight (allow multiple entries per day)
@@ -1171,7 +1144,7 @@ async def get_weight_stats(user_id: str, days: int = 30):
         raise HTTPException(status_code=500, detail=str(e))
     
 @router.post("/sleep/entries", response_model=dict)
-async def create_sleep_entry(sleep_data: SleepEntryCreate):
+async def create_sleep_entry(sleep_data: SleepEntryCreate, tz_offset: int = Depends(get_timezone_offset)):
     """Create or update sleep entry"""
     try:
         print(f"😴 Creating sleep entry: {sleep_data.total_hours}h for user {sleep_data.user_id}")
@@ -1180,9 +1153,9 @@ async def create_sleep_entry(sleep_data: SleepEntryCreate):
         
         # Parse date
         try:
-            entry_date = datetime.fromisoformat(sleep_data.date.replace('Z', '+00:00')).date()
+            entry_date = get_user_date(sleep_data.date, tz_offset)
         except ValueError:
-            entry_date = datetime.now().date()
+            entry_date = get_user_today(tz_offset)
         
         # Parse bedtime and wake_time if provided
         bedtime = None
@@ -1190,13 +1163,13 @@ async def create_sleep_entry(sleep_data: SleepEntryCreate):
         
         if sleep_data.bedtime:
             try:
-                bedtime = datetime.fromisoformat(sleep_data.bedtime.replace('Z', '+00:00'))
+                bedtime = get_user_date(sleep_data.bedtime, tz_offset)
             except ValueError:
                 pass
                 
         if sleep_data.wake_time:
             try:
-                wake_time = datetime.fromisoformat(sleep_data.wake_time.replace('Z', '+00:00'))
+                wake_time = get_user_date(sleep_data.wake_time, tz_offset)
             except ValueError:
                 pass
         
@@ -1216,7 +1189,7 @@ async def create_sleep_entry(sleep_data: SleepEntryCreate):
             'deep_sleep_hours': sleep_data.deep_sleep_hours,
             'sleep_issues': sleep_data.sleep_issues or [],
             'notes': sleep_data.notes,
-            'updated_at': datetime.now().isoformat()
+            'updated_at': get_user_now(tz_offset).isoformat()
         }
         
         if existing_entry:
@@ -1229,7 +1202,7 @@ async def create_sleep_entry(sleep_data: SleepEntryCreate):
         else:
             # Create new entry
             sleep_entry_data['id'] = str(uuid.uuid4())
-            sleep_entry_data['created_at'] = datetime.now().isoformat()
+            sleep_entry_data['created_at'] = get_user_now(tz_offset).isoformat()
             created_entry = await supabase_service.create_sleep_entry(sleep_entry_data)
             return {"success": True, "id": created_entry['id'], "entry": created_entry}
             
@@ -1275,7 +1248,7 @@ async def get_sleep_history(user_id: str, limit: int = 30):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/sleep/entries/{user_id}/{date}")
-async def get_sleep_entry_by_date(user_id: str, date: str):
+async def get_sleep_entry_by_date(user_id: str, date: str, tz_offset: int = Depends(get_timezone_offset)):
     """Get sleep entry for a specific date"""
     try:
         print(f"Getting sleep entry for user: {user_id}, date: {date}")
@@ -1284,7 +1257,7 @@ async def get_sleep_entry_by_date(user_id: str, date: str):
         
         # Parse date
         try:
-            entry_date = datetime.strptime(date, "%Y-%m-%d").date()
+            entry_date = entry_date = get_user_date(date, tz_offset)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
         
@@ -1332,7 +1305,7 @@ async def get_sleep_entry_by_date(user_id: str, date: str):
         }
 
 @router.put("/sleep/entries/{entry_id}")
-async def update_sleep_entry(entry_id: str, sleep_data: SleepEntryUpdate):
+async def update_sleep_entry(entry_id: str, sleep_data: SleepEntryUpdate, tz_offset: int = Depends(get_timezone_offset)):
     """Update an existing sleep entry"""
     try:
         print(f"😴 Updating sleep entry: {entry_id}")
@@ -1343,14 +1316,14 @@ async def update_sleep_entry(entry_id: str, sleep_data: SleepEntryUpdate):
         
         if sleep_data.bedtime is not None:
             try:
-                bedtime = datetime.fromisoformat(sleep_data.bedtime.replace('Z', '+00:00'))
+                bedtime = get_user_date(sleep_data.bedtime, tz_offset)
                 update_data['bedtime'] = bedtime.isoformat()
             except ValueError:
                 pass
         
         if sleep_data.wake_time is not None:
             try:
-                wake_time = datetime.fromisoformat(sleep_data.wake_time.replace('Z', '+00:00'))
+                wake_time = get_user_date(sleep_data.wake_time, tz_offset)
                 update_data['wake_time'] = wake_time.isoformat()
             except ValueError:
                 pass
@@ -1366,7 +1339,7 @@ async def update_sleep_entry(entry_id: str, sleep_data: SleepEntryUpdate):
         if sleep_data.notes is not None:
             update_data['notes'] = sleep_data.notes
         
-        update_data['updated_at'] = datetime.now().isoformat()
+        update_data['updated_at'] = get_user_now(tz_offset).isoformat()
         
         updated_entry = await supabase_service.update_sleep_entry(entry_id, update_data)
         
@@ -1442,7 +1415,7 @@ async def get_sleep_stats(user_id: str, days: int = 30):
         raise HTTPException(status_code=500, detail=str(e))
     
 @router.post("/supplements/preferences", response_model=dict)
-async def save_supplement_preferences(preferences_data: SupplementPreferenceCreate):
+async def save_supplement_preferences(preferences_data: SupplementPreferenceCreate, tz_offset: int = Depends(get_timezone_offset)):
     """Save or update supplement preferences for a user"""
     try:
         print(f"💊 Saving supplement preferences for user: {preferences_data.user_id}")
@@ -1465,8 +1438,8 @@ async def save_supplement_preferences(preferences_data: SupplementPreferenceCrea
                 'preferred_time': supplement.get('preferred_time', '9:00 AM'),
                 'notes': supplement.get('notes', ''),
                 'is_active': True,
-                'created_at': datetime.now().isoformat(),
-                'updated_at': datetime.now().isoformat()
+                'created_at': get_user_now(tz_offset).isoformat(),
+                'updated_at': get_user_now(tz_offset).isoformat()
             }
             
             saved_preference = await supabase_service.create_supplement_preference(preference_data)
@@ -1508,7 +1481,7 @@ async def get_supplement_preferences(user_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/supplements/log", response_model=dict)
-async def log_supplement_intake(log_data: SupplementLogCreate):
+async def log_supplement_intake(log_data: SupplementLogCreate, tz_offset: int = Depends(get_timezone_offset)):
     """Log daily supplement intake"""
     try:
         print(f"💊 Logging supplement: {log_data.supplement_name} = {log_data.taken}")
@@ -1517,9 +1490,9 @@ async def log_supplement_intake(log_data: SupplementLogCreate):
         
         # Parse date
         try:
-            entry_date = datetime.strptime(log_data.date, "%Y-%m-%d").date()
+            entry_date = get_user_date(log_data.date, tz_offset)
         except ValueError:
-            entry_date = datetime.now().date()
+            entry_date = get_user_today(tz_offset)
         
         # Check if log exists for this supplement and date
         existing_log = await supabase_service.get_supplement_log_by_date(
@@ -1536,7 +1509,7 @@ async def log_supplement_intake(log_data: SupplementLogCreate):
             'dosage': log_data.dosage,
             'time_taken': log_data.time_taken,
             'notes': log_data.notes,
-            'updated_at': datetime.now().isoformat()
+            'updated_at': get_user_now(tz_offset).isoformat()
         }
         
         if existing_log:
@@ -1549,7 +1522,7 @@ async def log_supplement_intake(log_data: SupplementLogCreate):
         else:
             # Create new log
             log_entry_data['id'] = str(uuid.uuid4())
-            log_entry_data['created_at'] = datetime.now().isoformat()
+            log_entry_data['created_at'] = get_user_now(tz_offset).isoformat()
             created_log = await supabase_service.create_supplement_log(log_entry_data)
             return {"success": True, "id": created_log['id'], "log": created_log}
             
@@ -1558,13 +1531,13 @@ async def log_supplement_intake(log_data: SupplementLogCreate):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/supplements/status/{user_id}")
-async def get_todays_supplement_status(user_id: str, date: Optional[str] = None):
+async def get_todays_supplement_status(user_id: str, date: Optional[str] = None, tz_offset: int = Depends(get_timezone_offset)):
     """Get today's supplement status for a user"""
     try:
         if date:
-            target_date = datetime.strptime(date, "%Y-%m-%d").date()
+            target_date = get_user_date(date, tz_offset)
         else:
-            target_date = datetime.now().date()
+            target_date = get_user_today(tz_offset)
             
         print(f"💊 Getting supplement status for user: {user_id}, date: {target_date}")
         
@@ -1692,7 +1665,7 @@ async def delete_supplement_preference(preference_id: str):
         raise HTTPException(status_code=500, detail=str(e))
     
 @router.post("/exercise/log", response_model=dict)
-async def log_exercise(exercise_data: dict):  # Change from ExerciseLogCreate to dict
+async def log_exercise(exercise_data: dict, tz_offset: int = Depends(get_timezone_offset)):  # Change from ExerciseLogCreate to dict
     """Log exercise activity"""
     try:
         print(f"💪 Logging exercise: {exercise_data.get('exercise_name')} for user {exercise_data.get('user_id')}")
@@ -1703,11 +1676,11 @@ async def log_exercise(exercise_data: dict):  # Change from ExerciseLogCreate to
         exercise_date_str = exercise_data.get('exercise_date')
         if exercise_date_str:
             try:
-                exercise_date = datetime.fromisoformat(exercise_date_str.replace('Z', '+00:00'))
+                exercise_date = get_user_date(exercise_date_str, tz_offset)
             except ValueError:
-                exercise_date = datetime.now()
+                exercise_date = get_user_now(tz_offset)
         else:
-            exercise_date = datetime.now()
+            exercise_date = get_user_now(tz_offset)
         
         # Clean the data - remove null values and ensure proper types
         exercise_log_data = {
@@ -1719,8 +1692,8 @@ async def log_exercise(exercise_data: dict):  # Change from ExerciseLogCreate to
             'intensity': exercise_data.get('intensity'),
             'notes': exercise_data.get('notes'),
             'exercise_date': exercise_date.isoformat(),
-            'created_at': datetime.now().isoformat(),
-            'updated_at': datetime.now().isoformat()
+            'created_at': get_user_now(tz_offset).isoformat(),
+            'updated_at': get_user_now(tz_offset).isoformat()
         }
         
         # Add type-specific fields only if they have values
@@ -1787,7 +1760,7 @@ async def get_exercise_logs(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/exercise/stats/{user_id}")
-async def get_exercise_stats(user_id: str, days: int = 30):
+async def get_exercise_stats(user_id: str, days: int = 30, tz_offset: int = Depends(get_timezone_offset)):
     """Get exercise statistics"""
     try:
         print(f"💪 Getting exercise stats for user: {user_id}, last {days} days")
@@ -1795,7 +1768,7 @@ async def get_exercise_stats(user_id: str, days: int = 30):
         supabase_service = get_supabase_service()
         
         # Get recent exercise logs - use a broader date range
-        end_date = datetime.now().date()
+        end_date = get_user_today(tz_offset)
         start_date = end_date - timedelta(days=days)
         
         print(f"💪 Date range: {start_date} to {end_date}")
@@ -1898,7 +1871,7 @@ async def delete_exercise(exercise_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/exercise/weekly-summary/{user_id}")
-async def get_weekly_exercise_summary(user_id: str):
+async def get_weekly_exercise_summary(user_id: str, tz_offset: int = Depends(get_timezone_offset)):
     """Get weekly exercise summary for analytics"""
     try:
         print(f"💪 Getting weekly summary for user: {user_id}")
@@ -1906,7 +1879,7 @@ async def get_weekly_exercise_summary(user_id: str):
         supabase_service = get_supabase_service()
         
         # Get exercises from the last 4 weeks for better analysis
-        end_date = datetime.now().date()
+        end_date = get_user_today(tz_offset)
         start_date = end_date - timedelta(days=28)
         
         exercises = await supabase_service.get_exercise_logs(
@@ -1933,7 +1906,7 @@ async def get_weekly_exercise_summary(user_id: str):
         
         # Calculate weekly breakdown
         for ex in exercises:
-            date = datetime.fromisoformat(ex['exercise_date'].replace('Z', '+00:00'))
+            date = get_user_now(tz_offset).isoformat(ex['exercise_date'].replace('Z', '+00:00'))
             week_start = date - timedelta(days=date.weekday())
             week_key = week_start.strftime('%Y-%m-%d')
             summary["weekly_breakdown"][week_key] = summary["weekly_breakdown"].get(week_key, 0) + 1
@@ -2013,7 +1986,7 @@ async def get_exercise_history(
         raise HTTPException(status_code=500, detail=str(e))
     
 @router.post("/period", response_model=dict)
-async def save_period_entry(period_data: PeriodEntryCreate):
+async def save_period_entry(period_data: PeriodEntryCreate, tz_offset: int = Depends(get_timezone_offset)):
     """Save or update period entry"""
     try:
         print(f"🌸 Saving period entry for user {period_data.user_id}")
@@ -2022,14 +1995,14 @@ async def save_period_entry(period_data: PeriodEntryCreate):
         
         # Parse dates
         try:
-            start_date = datetime.strptime(period_data.start_date, "%Y-%m-%d").date()
+            start_date = get_user_date(period_data.start_date, tz_offset)
         except ValueError:
-            start_date = datetime.now().date()
+            start_date = get_user_today(tz_offset)
         
         end_date = None
         if period_data.end_date:
             try:
-                end_date = datetime.strptime(period_data.end_date, "%Y-%m-%d").date()
+                end_date = get_user_date(period_data.end_date ,tz_offset)
             except ValueError:
                 pass
         
@@ -2041,7 +2014,7 @@ async def save_period_entry(period_data: PeriodEntryCreate):
             'symptoms': period_data.symptoms or [],
             'mood': period_data.mood,
             'notes': period_data.notes,
-            'updated_at': datetime.now().isoformat()
+            'updated_at': get_user_now(tz_offset).isoformat()
         }
         
         # Check if there's an ongoing period entry
@@ -2057,7 +2030,7 @@ async def save_period_entry(period_data: PeriodEntryCreate):
         else:
             # Create new period entry
             period_entry_data['id'] = str(uuid.uuid4())
-            period_entry_data['created_at'] = datetime.now().isoformat()
+            period_entry_data['created_at'] = get_user_now(tz_offset).isoformat()
             created_entry = await supabase_service.create_period_entry(period_entry_data)
             return {"success": True, "id": created_entry['id'], "period": created_entry}
         
@@ -2114,7 +2087,7 @@ async def delete_period_entry(period_id: str):
         raise HTTPException(status_code=500, detail=str(e))
     
 @router.post("/chat", response_model=dict)
-async def health_chat(request: dict):
+async def health_chat(request: dict, tz_offset: int = Depends(get_timezone_offset)):
     """Enhanced health chat with OpenAI integration"""
     try:
         user_id = request.get('user_id')
@@ -2131,7 +2104,7 @@ async def health_chat(request: dict):
         return {
             "success": True,
             "response": response,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": get_user_now(tz_offset).isoformat()
         }
         
     except Exception as e:
