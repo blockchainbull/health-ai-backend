@@ -1692,39 +1692,60 @@ async def delete_supplement_preference(preference_id: str):
         raise HTTPException(status_code=500, detail=str(e))
     
 @router.post("/exercise/log", response_model=dict)
-async def log_exercise(exercise_data: ExerciseLogCreate):
+async def log_exercise(exercise_data: dict):  # Change from ExerciseLogCreate to dict
     """Log exercise activity"""
     try:
-        print(f"💪 Logging exercise: {exercise_data.exercise_name} for user {exercise_data.user_id}")
+        print(f"💪 Logging exercise: {exercise_data.get('exercise_name')} for user {exercise_data.get('user_id')}")
         
         supabase_service = get_supabase_service()
         
         # Parse exercise date
-        if exercise_data.exercise_date:
+        exercise_date_str = exercise_data.get('exercise_date')
+        if exercise_date_str:
             try:
-                exercise_date = datetime.fromisoformat(exercise_data.exercise_date.replace('Z', '+00:00'))
+                exercise_date = datetime.fromisoformat(exercise_date_str.replace('Z', '+00:00'))
             except ValueError:
                 exercise_date = datetime.now()
         else:
             exercise_date = datetime.now()
         
+        # Clean the data - remove null values and ensure proper types
         exercise_log_data = {
             'id': str(uuid.uuid4()),
-            'user_id': exercise_data.user_id,
-            'exercise_name': exercise_data.exercise_name,
-            'exercise_type': exercise_data.exercise_type,
-            'duration_minutes': exercise_data.duration_minutes,
-            'calories_burned': exercise_data.calories_burned,
-            'distance_km': exercise_data.distance_km,
-            'sets': exercise_data.sets,
-            'reps': exercise_data.reps,
-            'weight_kg': exercise_data.weight_kg,
-            'intensity': exercise_data.intensity,
-            'notes': exercise_data.notes,
+            'user_id': exercise_data.get('user_id'),
+            'exercise_name': exercise_data.get('exercise_name'),
+            'exercise_type': exercise_data.get('exercise_type', 'strength'),
+            'muscle_group': exercise_data.get('muscle_group', 'general'),
+            'intensity': exercise_data.get('intensity'),
+            'notes': exercise_data.get('notes'),
             'exercise_date': exercise_date.isoformat(),
             'created_at': datetime.now().isoformat(),
             'updated_at': datetime.now().isoformat()
         }
+        
+        # Add type-specific fields only if they have values
+        exercise_type = exercise_data.get('exercise_type', 'strength')
+        
+        if exercise_type == 'cardio':
+            # For cardio exercises
+            if exercise_data.get('duration_minutes') is not None:
+                exercise_log_data['duration_minutes'] = int(exercise_data.get('duration_minutes'))
+            if exercise_data.get('distance_km') is not None and exercise_data.get('distance_km') > 0:
+                exercise_log_data['distance_km'] = float(exercise_data.get('distance_km'))
+            if exercise_data.get('calories_burned') is not None:
+                exercise_log_data['calories_burned'] = float(exercise_data.get('calories_burned'))
+        else:
+            # For strength exercises
+            if exercise_data.get('sets') is not None:
+                exercise_log_data['sets'] = int(exercise_data.get('sets'))
+            if exercise_data.get('reps') is not None:
+                exercise_log_data['reps'] = int(exercise_data.get('reps'))
+            if exercise_data.get('weight_kg') is not None and exercise_data.get('weight_kg') > 0:
+                exercise_log_data['weight_kg'] = float(exercise_data.get('weight_kg'))
+            if exercise_data.get('calories_burned') is not None:
+                exercise_log_data['calories_burned'] = float(exercise_data.get('calories_burned'))
+        
+        print(f"💪 Processed exercise data: {exercise_log_data}")
         
         created_log = await supabase_service.create_exercise_log(exercise_log_data)
         
@@ -1732,6 +1753,8 @@ async def log_exercise(exercise_data: ExerciseLogCreate):
         
     except Exception as e:
         print(f"❌ Error logging exercise: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/exercise/logs/{user_id}")
