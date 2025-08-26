@@ -1873,6 +1873,121 @@ async def delete_exercise(exercise_id: str):
     except Exception as e:
         print(f"❌ Error deleting exercise: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/exercise/weekly-summary/{user_id}")
+async def get_weekly_exercise_summary(user_id: str):
+    """Get weekly exercise summary for analytics"""
+    try:
+        print(f"💪 Getting weekly summary for user: {user_id}")
+        
+        supabase_service = get_supabase_service()
+        
+        # Get exercises from the last 4 weeks for better analysis
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=28)
+        
+        exercises = await supabase_service.get_exercise_logs(
+            user_id,
+            start_date=str(start_date),
+            end_date=str(end_date),
+            limit=500
+        )
+        
+        # Calculate weekly summary
+        summary = {
+            "total_workouts": len(exercises),
+            "total_calories": sum(ex.get('calories_burned', 0) for ex in exercises),
+            "muscle_groups": {},
+            "weekly_breakdown": {},
+            "most_frequent_exercise": None,
+            "total_volume": 0  # For strength exercises
+        }
+        
+        # Calculate muscle group distribution
+        for ex in exercises:
+            muscle_group = ex.get('muscle_group', 'other')
+            summary["muscle_groups"][muscle_group] = summary["muscle_groups"].get(muscle_group, 0) + 1
+        
+        # Calculate weekly breakdown
+        for ex in exercises:
+            date = datetime.fromisoformat(ex['exercise_date'].replace('Z', '+00:00'))
+            week_start = date - timedelta(days=date.weekday())
+            week_key = week_start.strftime('%Y-%m-%d')
+            summary["weekly_breakdown"][week_key] = summary["weekly_breakdown"].get(week_key, 0) + 1
+        
+        # Find most frequent exercise
+        exercise_counts = {}
+        for ex in exercises:
+            name = ex.get('exercise_name', 'Unknown')
+            exercise_counts[name] = exercise_counts.get(name, 0) + 1
+        
+        if exercise_counts:
+            summary["most_frequent_exercise"] = max(exercise_counts.items(), key=lambda x: x[1])[0]
+        
+        # Calculate total volume for strength exercises
+        for ex in exercises:
+            if ex.get('exercise_type') == 'strength':
+                sets = ex.get('sets', 0) or 0
+                reps = ex.get('reps', 0) or 0
+                weight = ex.get('weight_kg', 0) or 0
+                summary["total_volume"] += sets * reps * weight
+        
+        return {"success": True, "summary": summary}
+        
+    except Exception as e:
+        print(f"❌ Error getting weekly summary: {e}")
+        return {"success": False, "summary": {}}
+
+@router.delete("/exercise/log/{exercise_id}")
+async def delete_exercise_log(exercise_id: str, user_id: str = None):
+    """Delete an exercise log entry"""
+    try:
+        print(f"💪 Deleting exercise log: {exercise_id}")
+        
+        supabase_service = get_supabase_service()
+        success = await supabase_service.delete_exercise_log(exercise_id)
+        
+        if success:
+            return {"success": True, "message": "Exercise deleted successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Exercise not found")
+            
+    except Exception as e:
+        print(f"❌ Error deleting exercise: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/exercise/history/{user_id}")
+async def get_exercise_history(
+    user_id: str,
+    limit: int = 100,
+    date: str = None
+):
+    """Get exercise history with optional date filtering"""
+    try:
+        print(f"💪 Getting exercise history for user: {user_id}")
+        
+        supabase_service = get_supabase_service()
+        
+        if date:
+            # Get exercises for specific date
+            exercises = await supabase_service.get_exercise_logs(
+                user_id,
+                start_date=date,
+                end_date=date,
+                limit=limit
+            )
+        else:
+            # Get all recent exercises
+            exercises = await supabase_service.get_exercise_logs(
+                user_id,
+                limit=limit
+            )
+        
+        return {"success": True, "exercises": exercises}
+        
+    except Exception as e:
+        print(f"❌ Error getting exercise history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     
 @router.post("/period", response_model=dict)
 async def save_period_entry(period_data: PeriodEntryCreate):

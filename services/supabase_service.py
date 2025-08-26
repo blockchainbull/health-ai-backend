@@ -785,8 +785,12 @@ class SupabaseService:
     
     # Exercise methods
     async def create_exercise_log(self, exercise_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a new exercise log"""
+        """Create a new exercise log entry"""
         try:
+            # Ensure muscle_group is included
+            if 'muscle_group' not in exercise_data and 'exercise_type' in exercise_data:
+                exercise_data['muscle_group'] = 'general'
+                
             response = self.client.table('exercise_logs').insert(exercise_data).execute()
             if response.data:
                 return response.data[0]
