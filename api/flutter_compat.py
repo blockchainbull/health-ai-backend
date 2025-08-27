@@ -625,7 +625,7 @@ async def get_meal_history_flutter(user_id: str, limit: int = 50, date: str = No
     
 # Water logging
 @router.post("/water", response_model=dict)
-async def save_water_entry(water_data: WaterEntryCreate,tz_offset: int = Depends(get_timezone_offset)):
+async def save_water_entry(water_data: WaterEntryCreate, tz_offset: int = Depends(get_timezone_offset)):
     """Save or update daily water intake"""
     try:
         print(f"💧 Saving water entry: {water_data.glasses_consumed} glasses for user {water_data.user_id}")
@@ -651,7 +651,7 @@ async def save_water_entry(water_data: WaterEntryCreate,tz_offset: int = Depends
             'total_ml': water_data.total_ml,
             'target_ml': water_data.target_ml,
             'notes': water_data.notes,
-            'updated_at': datetime.now().isoformat()
+            'updated_at': get_user_now(tz_offset).isoformat()
         }
         
         if existing_entry:
@@ -664,7 +664,7 @@ async def save_water_entry(water_data: WaterEntryCreate,tz_offset: int = Depends
         else:
             # Create new entry
             water_entry_data['id'] = str(uuid.uuid4())
-            water_entry_data['created_at'] = datetime.now().isoformat()
+            water_entry_data['created_at'] = get_user_now(tz_offset).isoformat()
             created_entry = await supabase_service.create_water_entry(water_entry_data)
             return {"success": True, "id": created_entry['id'], "entry": created_entry}
             
