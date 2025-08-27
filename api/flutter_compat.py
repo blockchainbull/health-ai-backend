@@ -94,7 +94,7 @@ async def health_check():
     return {"status": "ok", "message": "Health API is running"}
 
 @router.post("/users", response_model=HealthUserResponse)
-async def create_health_user(user_profile: HealthUserCreate):
+async def create_health_user(user_profile: HealthUserCreate, tz_offset: int = Depends(get_timezone_offset)):
     """Create user profile for mobile app - Flutter compatible"""
     try:
         print(f"🔍 Flutter user registration: {user_profile.email}")
@@ -160,8 +160,8 @@ async def create_health_user(user_profile: HealthUserCreate):
             'has_trainer': user_profile.hasTrainer,
             
             'preferences': {},
-            'created_at': datetime.utcnow().isoformat(),
-            'updated_at': datetime.utcnow().isoformat()
+            'created_at': get_user_now(tz_offset).isoformat(),
+            'updated_at': get_user_now(tz_offset).isoformat()
         }
         
         # Create user in Supabase
@@ -809,7 +809,7 @@ async def save_step_entry(step_data: StepEntryCreate, tz_offset: int = Depends(g
         else:
             # Create new entry
             step_entry_data['id'] = str(uuid.uuid4())
-            step_entry_data['created_at'] = datetime.now().isoformat()
+            step_entry_data['created_at'] = get_user_now(tz_offset).isoformat()
             created_entry = await supabase_service.create_step_entry(step_entry_data)
             return {"success": True, "id": created_entry['id'], "entry": created_entry}
             
@@ -1026,7 +1026,7 @@ async def save_weight_entry(weight_data: WeightEntryCreate, tz_offset: int = Dep
         
         # Always create new entry for weight (allow multiple entries per day)
         weight_entry_data['id'] = str(uuid.uuid4())
-        weight_entry_data['created_at'] = datetime.now().isoformat()
+        weight_entry_data['created_at'] = get_user_now(tz_offset).isoformat()
         created_entry = await supabase_service.create_weight_entry(weight_entry_data)
         
         return {"success": True, "id": created_entry['id'], "entry": created_entry}
