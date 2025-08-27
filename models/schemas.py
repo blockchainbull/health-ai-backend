@@ -53,6 +53,7 @@ class UserCreate(BaseModel):
     # Nutrition
     dietary_preferences: Optional[List[str]] = []
     water_intake: Optional[float] = 2.0
+    water_intake_glasses: Optional[int] = 8
     medical_conditions: Optional[List[str]] = []
     other_medical_condition: Optional[str] = None
     
@@ -105,6 +106,7 @@ class UserUpdate(BaseModel):
     # Nutrition
     dietary_preferences: Optional[List[str]] = None
     water_intake: Optional[float] = None
+    water_intake_glasses: Optional[int] = None
     medical_conditions: Optional[List[str]] = None
     other_medical_condition: Optional[str] = None
     

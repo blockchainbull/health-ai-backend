@@ -56,6 +56,7 @@ class HealthUserCreate(BaseModel):
     
     dietaryPreferences: Optional[list] = []
     waterIntake: Optional[float] = 2.0
+    waterIntakeGlasses: Optional[int] = 8
     medicalConditions: Optional[list] = []
     otherMedicalCondition: Optional[str] = None
     
@@ -147,6 +148,7 @@ async def create_health_user(user_profile: HealthUserCreate, tz_offset: int = De
             # Nutrition
             'dietary_preferences': user_profile.dietaryPreferences or [],
             'water_intake': user_profile.waterIntake,
+            'water_intake_glasses': user_profile.waterIntakeGlasses,
             'medical_conditions': user_profile.medicalConditions or [],
             'other_medical_condition': user_profile.otherMedicalCondition,
             
@@ -267,6 +269,7 @@ async def complete_flutter_onboarding(onboarding_data: UnifiedOnboardingRequest)
             # Nutrition
             dietaryPreferences=dietary_prefs.get('dietaryPreferences', []),
             waterIntake=dietary_prefs.get('waterIntake', 2.0),
+            waterIntakeGlasses=dietary_prefs.get('waterIntakeGlasses', 8),
             medicalConditions=dietary_prefs.get('medicalConditions', []),
             otherMedicalCondition=dietary_prefs.get('otherCondition'),
             

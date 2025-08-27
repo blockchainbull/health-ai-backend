@@ -22,6 +22,10 @@ class SupabaseService:
         try:
             print(f"🔍 Creating user in Supabase: {user_data.get('email')}")
             
+            if 'water_intake_glasses' not in user_data:
+                water_intake = user_data.get('water_intake', 2.0)
+                user_data['water_intake_glasses'] = round(water_intake * 4)
+
             # Ensure we have an ID
             if 'id' not in user_data:
                 user_data['id'] = str(uuid.uuid4())
@@ -78,6 +82,11 @@ class SupabaseService:
     async def update_user(self, user_id: str, user_data: Dict[str, Any]) -> Dict[str, Any]:
         """Update user profile including step goal"""
         try:
+            if 'water_intake' in user_data and 'water_intake_glasses' not in user_data:
+                user_data['water_intake_glasses'] = round(user_data['water_intake'] * 4)
+            elif 'water_intake_glasses' in user_data and 'water_intake' not in user_data:
+                user_data['water_intake'] = user_data['water_intake_glasses'] / 4.0
+            
             response = self.client.table('users').update(user_data).eq('id', user_id).execute()
             if response.data:
                 return response.data[0]
