@@ -219,7 +219,10 @@ async def login_health_user(login_data: HealthLoginRequest):
         )
 
 @router.post("/onboarding/complete", response_model=HealthUserResponse)
-async def complete_flutter_onboarding(onboarding_data: UnifiedOnboardingRequest):
+async def complete_flutter_onboarding(
+    onboarding_data: UnifiedOnboardingRequest,
+    tz_offset: int = Depends(get_timezone_offset)  # Add this dependency
+):
     """Complete onboarding process for Flutter app"""
     try:
         print("🔍 Flutter onboarding data received")
@@ -232,62 +235,98 @@ async def complete_flutter_onboarding(onboarding_data: UnifiedOnboardingRequest)
         workout_prefs = onboarding_data.workoutPreferences or {}
         exercise_setup = onboarding_data.exerciseSetup or {}
         
-        # Convert to HealthUserCreate format
-        user_profile = HealthUserCreate(
-            name=basic_info.get('name'),
-            email=basic_info.get('email'),
-            password=basic_info.get('password'),
-            gender=basic_info.get('gender'),
-            age=basic_info.get('age'),
-            height=basic_info.get('height'),
-            weight=basic_info.get('weight'),
-            activityLevel=basic_info.get('activityLevel'),
-            bmi=basic_info.get('bmi'),
-            bmr=basic_info.get('bmr'),
-            tdee=basic_info.get('tdee'),
+        print(f"🔍 Flutter user registration: {basic_info.get('email')}")
+        
+        # Get Supabase service
+        supabase_service = get_supabase_service()
+        
+        # Check if user already exists
+        print(f"🔍 Getting user by email: {basic_info.get('email')}")
+        existing_user = await supabase_service.get_user_by_email(basic_info.get('email'))
+        
+        if existing_user:
+            print(f"❌ User already exists: {basic_info.get('email')}")
+            return HealthUserResponse(
+                success=False,
+                error="Email already exists"
+            )
+        
+        print(f"✅ User not found by email: {basic_info.get('email')}")
+        
+        # Create user dictionary directly
+        user_dict = {
+            'id': str(uuid.uuid4()),
+            'name': basic_info.get('name'),
+            'email': basic_info.get('email'),
+            'password_hash': hash_password(basic_info.get('password')),
+            'gender': basic_info.get('gender'),
+            'age': basic_info.get('age'),
+            'height': basic_info.get('height'),
+            'weight': basic_info.get('weight'),
+            'activity_level': basic_info.get('activityLevel'),
+            'bmi': basic_info.get('bmi'),
+            'bmr': basic_info.get('bmr'),
+            'tdee': basic_info.get('tdee'),
             
-            # Period data
-            hasPeriods=period_cycle.get('hasPeriods'),
-            lastPeriodDate=period_cycle.get('lastPeriodDate'),
-            cycleLength=period_cycle.get('cycleLength'),
-            cycleLengthRegular=period_cycle.get('cycleLengthRegular'),
-            pregnancyStatus=period_cycle.get('pregnancyStatus'),
-            periodTrackingPreference=period_cycle.get('trackingPreference'),
+            # Period tracking
+            'has_periods': period_cycle.get('hasPeriods'),
+            'last_period_date': period_cycle.get('lastPeriodDate'),
+            'cycle_length': period_cycle.get('cycleLength'),
+            'cycle_length_regular': period_cycle.get('cycleLengthRegular'),
+            'pregnancy_status': period_cycle.get('pregnancyStatus'),
+            'period_tracking_preference': period_cycle.get('trackingPreference'),
             
             # Goals
-            primaryGoal=onboarding_data.primaryGoal,
-            weightGoal=weight_goal.get('weightGoal'),
-            targetWeight=weight_goal.get('targetWeight'),
-            goalTimeline=weight_goal.get('timeline'),
+            'primary_goal': onboarding_data.primaryGoal,
+            'weight_goal': weight_goal.get('weightGoal'),
+            'target_weight': weight_goal.get('targetWeight'),
+            'goal_timeline': weight_goal.get('timeline'),
             
             # Sleep
-            sleepHours=sleep_info.get('sleepHours', 7.0),
-            bedtime=sleep_info.get('bedtime'),
-            wakeupTime=sleep_info.get('wakeupTime'),
-            sleepIssues=sleep_info.get('sleepIssues', []),
+            'sleep_hours': sleep_info.get('sleepHours', 7.0),
+            'bedtime': sleep_info.get('bedtime'),
+            'wakeup_time': sleep_info.get('wakeupTime'),
+            'sleep_issues': sleep_info.get('sleepIssues', []),
             
             # Nutrition
-            dietaryPreferences=dietary_prefs.get('dietaryPreferences', []),
-            waterIntake=dietary_prefs.get('waterIntake', 2.0),
-            waterIntakeGlasses=dietary_prefs.get('waterIntakeGlasses', 8),
-            medicalConditions=dietary_prefs.get('medicalConditions', []),
-            otherMedicalCondition=dietary_prefs.get('otherCondition'),
+            'dietary_preferences': dietary_prefs.get('dietaryPreferences', []),
+            'water_intake': dietary_prefs.get('waterIntake', 2.0),
+            'water_intake_glasses': dietary_prefs.get('waterIntakeGlasses', 8),
+            'medical_conditions': dietary_prefs.get('medicalConditions', []),
+            'other_medical_condition': dietary_prefs.get('otherCondition'),
             
             # Exercise
-            preferredWorkouts=workout_prefs.get('workoutTypes', []),
-            workoutFrequency=workout_prefs.get('frequency', 3),
-            workoutDuration=workout_prefs.get('duration', 30),
-            workoutLocation=exercise_setup.get('workoutLocation'),
-            availableEquipment=exercise_setup.get('equipment', []),
-            fitnessLevel=exercise_setup.get('fitnessLevel', 'Beginner'),
-            hasTrainer=exercise_setup.get('hasTrainer', False)
-        )
+            'preferred_workouts': workout_prefs.get('workoutTypes', []),
+            'workout_frequency': workout_prefs.get('frequency', 3),
+            'workout_duration': workout_prefs.get('duration', 30),
+            'workout_location': exercise_setup.get('workoutLocation'),
+            'available_equipment': exercise_setup.get('equipment', []),
+            'fitness_level': exercise_setup.get('fitnessLevel', 'Beginner'),
+            'has_trainer': exercise_setup.get('hasTrainer', False),
+            
+            'preferences': {},
+            'created_at': get_user_now(tz_offset).isoformat(),
+            'updated_at': get_user_now(tz_offset).isoformat()
+        }
         
-        # Use the existing create_health_user function
-        return await create_health_user(user_profile)
+        print(f"✅ Creating user in Supabase...")
+        
+        # Create user in Supabase
+        created_user = await supabase_service.create_user(user_dict)
+        
+        print(f"✅ User created successfully: {created_user['id']}")
+        
+        return HealthUserResponse(
+            success=True,
+            userId=created_user['id'],
+            userProfile=created_user,
+            message="User registered successfully"
+        )
         
     except Exception as e:
         print(f"❌ Error completing Flutter onboarding: {e}")
+        import traceback
+        traceback.print_exc()
         return HealthUserResponse(
             success=False,
             error=str(e)
