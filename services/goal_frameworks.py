@@ -1,8 +1,43 @@
 # services/goal_frameworks.py
-from typing import Dict, List, Any
+from typing import Dict, Any
 from datetime import datetime, timedelta
 
 class WeightGoalFrameworks:
+
+    @staticmethod
+    def parse_timeline(timeline_str: str) -> int:
+        """Parse timeline string to weeks
+        
+        Accepts formats:
+        - '6_weeks', '12_weeks', '20_weeks' (new format)
+        - 'Gradual', 'Moderate', 'Ambitious' (legacy format)
+        - '3_months', '6_months' (old format - for backwards compatibility)
+        """
+        timeline_map = {
+            # New week-based format
+            '6_weeks': 6,
+            '12_weeks': 12,
+            '20_weeks': 20,
+            '24_weeks': 24,
+            
+            # Legacy text format
+            'Ambitious': 6,
+            'Moderate': 12,
+            'Gradual': 20,
+            
+            # Old month-based format (for backwards compatibility)
+            '1_month': 4,
+            '2_months': 8,
+            '3_months': 12,
+            '4_months': 16,
+            '6_months': 24,
+            
+            # Default
+            None: 12,
+            '': 12,
+        }
+        
+        return timeline_map.get(timeline_str, 12)
     
     @staticmethod
     def get_weight_loss_framework(user_profile: Dict[str, Any], activity_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -15,11 +50,24 @@ class WeightGoalFrameworks:
         gender = user_profile.get('gender', 'Female')
         activity_level = user_profile.get('activity_level', 'Sedentary')
         tdee = user_profile.get('tdee', 1800)
+        timeline_str = user_profile.get('goal_timeline', '12_weeks')
+        
+        # Parse timeline to weeks
+        target_weeks = WeightGoalFrameworks.parse_timeline(timeline_str)
         
         # Calculate weight loss specifics
         weight_to_lose = current_weight - target_weight
-        safe_weekly_loss = min(0.5, weight_to_lose * 0.1)  # Max 0.5kg/week or 10% of total
-        estimated_weeks = weight_to_lose / safe_weekly_loss if safe_weekly_loss > 0 else 12
+        
+        # Calculate weekly loss rate based on selected timeline
+        weekly_loss_rate = weight_to_lose / target_weeks if target_weeks > 0 else 0.5
+        
+        # Ensure safe rate (max 1kg/week, recommended 0.5-0.75kg/week)
+        safe_weekly_loss = min(1.0, weekly_loss_rate)
+        if safe_weekly_loss < weekly_loss_rate:
+            # Adjust timeline if rate is too aggressive
+            estimated_weeks = weight_to_lose / safe_weekly_loss
+        else:
+            estimated_weeks = target_weeks
         
         # Caloric deficit calculation
         weekly_deficit_needed = safe_weekly_loss * 7700  # 7700 cal = 1kg fat
@@ -49,9 +97,12 @@ class WeightGoalFrameworks:
         return {
             "framework_type": "weight_loss",
             "timeline": {
+                "target_weeks": target_weeks,
                 "estimated_weeks": round(estimated_weeks),
                 "safe_weekly_loss": round(safe_weekly_loss, 2),
-                "target_date": (datetime.now() + timedelta(weeks=estimated_weeks)).strftime("%Y-%m-%d")
+                "target_date": (datetime.now() + timedelta(weeks=estimated_weeks)).strftime("%Y-%m-%d"),
+                "is_aggressive": weekly_loss_rate > 0.75,
+                "timeline_label": timeline_str
             },
             "nutrition": {
                 "daily_calories": round(target_calories),
@@ -120,11 +171,27 @@ class WeightGoalFrameworks:
         gender = user_profile.get('gender', 'Male')
         tdee = user_profile.get('tdee', 2200)
         fitness_level = user_profile.get('fitness_level', 'Beginner')
+        timeline_str = user_profile.get('goal_timeline', '12_weeks')
         
+        # Parse timeline to weeks
+        target_weeks = WeightGoalFrameworks.parse_timeline(timeline_str)
+    
         # Calculate weight gain specifics
         weight_to_gain = target_weight - current_weight
-        safe_weekly_gain = min(0.5, weight_to_gain * 0.1)  # Max 0.5kg/week
-        estimated_weeks = weight_to_gain / safe_weekly_gain if safe_weekly_gain > 0 else 12
+        
+        # Calculate weekly gain rate based on selected timeline
+        weekly_gain_rate = weight_to_gain / target_weeks if target_weeks > 0 else 0.25
+        
+        # FIXED: For weight gain, we need to check if rate is TOO FAST
+        # Safe gain: 0.25-0.5kg/week (0.5kg/week max for lean gains)
+        safe_weekly_gain = min(0.5, weekly_gain_rate)  # Cap at 0.5kg/week max
+        
+        # If user wants to gain faster than safe rate, adjust timeline
+        if weekly_gain_rate > safe_weekly_gain:
+            # Need more time to gain safely
+            estimated_weeks = weight_to_gain / safe_weekly_gain
+        else:
+            estimated_weeks = target_weeks
         
         # Caloric surplus calculation
         weekly_surplus_needed = safe_weekly_gain * 7700  # 7700 cal = 1kg
@@ -167,7 +234,7 @@ class WeightGoalFrameworks:
                 },
                 "meal_strategy": "frequent_meals",
                 "meals_per_day": 5,
-                "hydration_glasses": 8,
+                "hydration_glasses": 10,
                 "fiber_target": 25,
                 "pre_workout_carbs": round(carb_grams * 0.3),
                 "post_workout_protein": round(protein_grams * 0.4)
@@ -183,7 +250,7 @@ class WeightGoalFrameworks:
                     "Bodyweight exercises",
                     "Light cardio for recovery"
                 ],
-                "rest_days": 3,
+                "rest_days": 2,
                 "workout_duration": "45-60 minutes"
             },
             "monitoring": {
@@ -210,6 +277,12 @@ class WeightGoalFrameworks:
                 "Get adequate sleep (8-9 hours)",
                 "Manage stress to optimize hormones",
                 "Track strength progress"
+            ],
+            "warnings": [
+                "Gaining too fast leads to excess fat gain" if weekly_gain_rate > 0.5 else None,
+                "Ensure adequate protein for muscle synthesis",
+                "Don't neglect vegetables despite caloric surplus",
+                "Monitor body composition, not just weight"
             ],
             "food_recommendations": {
                 "calorie_dense": [

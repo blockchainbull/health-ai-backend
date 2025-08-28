@@ -19,6 +19,37 @@ from services.chat_service import get_chat_service
 from services.goal_frameworks import WeightGoalFrameworks
 from utils.timezone_utils import get_timezone_offset, get_user_date, get_user_today, get_user_now
     
+def normalize_timeline(timeline_value: str) -> str:
+    """Normalize timeline values to week format"""
+    
+    # Map old values to new format
+    timeline_map = {
+        # Old month-based values
+        '1_month': '4_weeks',
+        '2_months': '8_weeks',
+        '3_months': '12_weeks',
+        '4_months': '16_weeks',
+        '6_months': '24_weeks',
+        
+        # Text-based values
+        'Ambitious': '6_weeks',
+        'Moderate': '12_weeks',
+        'Gradual': '20_weeks',
+    }
+    
+    # Return mapped value or original if already in correct format
+    return timeline_map.get(timeline_value, timeline_value)
+
+def validate_and_sync_goals(weight_goal: str) -> str:
+    """Map weight goal to primary goal"""
+    
+    goal_mapping = {
+        'lose_weight': 'Lose Weight',
+        'gain_weight': 'Gain Weight', 
+        'maintain_weight': 'Maintain Weight',
+    }
+    
+    return goal_mapping[weight_goal]
 
 router = APIRouter()
 
@@ -221,7 +252,7 @@ async def login_health_user(login_data: HealthLoginRequest):
 @router.post("/onboarding/complete", response_model=HealthUserResponse)
 async def complete_flutter_onboarding(
     onboarding_data: UnifiedOnboardingRequest,
-    tz_offset: int = Depends(get_timezone_offset)  # Add this dependency
+    tz_offset: int = Depends(get_timezone_offset)
 ):
     """Complete onboarding process for Flutter app"""
     try:
@@ -253,6 +284,12 @@ async def complete_flutter_onboarding(
         
         print(f"✅ User not found by email: {basic_info.get('email')}")
         
+        timeline = weight_goal.get('timeline', '12_weeks')
+        normalized_timeline = normalize_timeline(timeline)
+
+        weight_goal_value = weight_goal.get('weightGoal', 'maintain_weight')
+        primary_goal_value = validate_and_sync_goals(weight_goal_value)
+
         # Create user dictionary directly
         user_dict = {
             'id': str(uuid.uuid4()),
@@ -277,10 +314,10 @@ async def complete_flutter_onboarding(
             'period_tracking_preference': period_cycle.get('trackingPreference'),
             
             # Goals
-            'primary_goal': onboarding_data.primaryGoal,
+            'primary_goal': primary_goal_value,
             'weight_goal': weight_goal.get('weightGoal'),
             'target_weight': weight_goal.get('targetWeight'),
-            'goal_timeline': weight_goal.get('timeline'),
+            'goal_timeline': normalized_timeline,
             
             # Sleep
             'sleep_hours': sleep_info.get('sleepHours', 7.0),
@@ -2367,3 +2404,4 @@ async def get_session_messages(user_id: str, session_id: str):
     except Exception as e:
         print(f"Error getting session messages: {e}")
         return {"success": False, "messages": [], "count": 0}
+    
