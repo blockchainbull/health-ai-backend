@@ -88,6 +88,8 @@ class HealthUserCreate(BaseModel):
     dietaryPreferences: Optional[list] = []
     waterIntake: Optional[float] = 2.0
     waterIntakeGlasses: Optional[int] = 8
+    dailyStepGoal: Optional[int] = 10000
+    dailyMealsCount: Optional[int] = 3
     medicalConditions: Optional[list] = []
     otherMedicalCondition: Optional[str] = None
     
@@ -169,6 +171,7 @@ async def create_health_user(user_profile: HealthUserCreate, tz_offset: int = De
             'weight_goal': user_profile.weightGoal,
             'target_weight': user_profile.targetWeight,
             'goal_timeline': user_profile.goalTimeline,
+            'daily_step_goal': user_profile.dailyStepGoal ,
             
             # Sleep
             'sleep_hours': user_profile.sleepHours,
@@ -180,6 +183,7 @@ async def create_health_user(user_profile: HealthUserCreate, tz_offset: int = De
             'dietary_preferences': user_profile.dietaryPreferences or [],
             'water_intake': user_profile.waterIntake,
             'water_intake_glasses': user_profile.waterIntakeGlasses,
+            'daily_meals_count': user_profile.dailyMealsCount,
             'medical_conditions': user_profile.medicalConditions or [],
             'other_medical_condition': user_profile.otherMedicalCondition,
             
@@ -258,6 +262,9 @@ async def complete_flutter_onboarding(
     try:
         print("🔍 Flutter onboarding data received")
         
+        # Get Supabase service
+        supabase_service = get_supabase_service()
+
         basic_info = onboarding_data.basicInfo
         period_cycle = onboarding_data.periodCycle or {}
         weight_goal = onboarding_data.weightGoal or {}
@@ -268,27 +275,15 @@ async def complete_flutter_onboarding(
         
         print(f"🔍 Flutter user registration: {basic_info.get('email')}")
         
-        # Get Supabase service
-        supabase_service = get_supabase_service()
-        
-        # Check if user already exists
-        print(f"🔍 Getting user by email: {basic_info.get('email')}")
-        existing_user = await supabase_service.get_user_by_email(basic_info.get('email'))
-        
-        if existing_user:
-            print(f"❌ User already exists: {basic_info.get('email')}")
-            return HealthUserResponse(
-                success=False,
-                error="Email already exists"
-            )
-        
-        print(f"✅ User not found by email: {basic_info.get('email')}")
-        
         timeline = weight_goal.get('timeline', '12_weeks')
         normalized_timeline = normalize_timeline(timeline)
 
         weight_goal_value = weight_goal.get('weightGoal', 'maintain_weight')
         primary_goal_value = validate_and_sync_goals(weight_goal_value)
+
+        target_weight = weight_goal.get('targetWeight', 0.0)
+        if weight_goal.get('weightGoal') == 'maintain_weight' and target_weight == 0:
+            target_weight = basic_info.get('weight', 0.0)
 
         # Create user dictionary directly
         user_dict = {
@@ -316,8 +311,9 @@ async def complete_flutter_onboarding(
             # Goals
             'primary_goal': primary_goal_value,
             'weight_goal': weight_goal.get('weightGoal'),
-            'target_weight': weight_goal.get('targetWeight'),
+            'target_weight': target_weight,
             'goal_timeline': normalized_timeline,
+            'daily_step_goal': basic_info.get('dailyStepGoal', 10000),
             
             # Sleep
             'sleep_hours': sleep_info.get('sleepHours', 7.0),
@@ -329,6 +325,7 @@ async def complete_flutter_onboarding(
             'dietary_preferences': dietary_prefs.get('dietaryPreferences', []),
             'water_intake': dietary_prefs.get('waterIntake', 2.0),
             'water_intake_glasses': dietary_prefs.get('waterIntakeGlasses', 8),
+            'daily_meals_count': dietary_prefs.get('dailyMealsCount', 3),
             'medical_conditions': dietary_prefs.get('medicalConditions', []),
             'other_medical_condition': dietary_prefs.get('otherCondition'),
             
@@ -346,19 +343,43 @@ async def complete_flutter_onboarding(
             'updated_at': get_user_now(tz_offset).isoformat()
         }
         
+        # Check if user already exists
+        print(f"🔍 Getting user by email: {basic_info.get('email')}")
+        existing_user = await supabase_service.get_user_by_email(basic_info.get('email'))
+        
+        if existing_user:
+            print(f"❌ User already exists: {basic_info.get('email')}")
+            return HealthUserResponse(
+                success=False,
+                error="Email already exists"
+            )
+        
+        print(f"✅ User not found by email: {basic_info.get('email')}")
+
+
         print(f"✅ Creating user in Supabase...")
         
         # Create user in Supabase
         created_user = await supabase_service.create_user(user_dict)
         
-        print(f"✅ User created successfully: {created_user['id']}")
-        
-        return HealthUserResponse(
-            success=True,
-            userId=created_user['id'],
-            userProfile=created_user,
-            message="User registered successfully"
-        )
+        if created_user:
+            print(f"✅ User created successfully with ID: {created_user['id']}")
+            print(f"   Daily step goal: {created_user.get('daily_step_goal')}")
+            print(f"   Daily meals count: {created_user.get('daily_meals_count')}")
+            print(f"   Target weight: {created_user.get('target_weight')}")
+            
+            # Return the created user profile
+            return HealthUserResponse(
+                success=True,
+                userId=created_user['id'],
+                message="Onboarding completed successfully",
+                userProfile=created_user
+            )
+        else:
+            return HealthUserResponse(
+                success=False,
+                error="Failed to create user"
+            )
         
     except Exception as e:
         print(f"❌ Error completing Flutter onboarding: {e}")
