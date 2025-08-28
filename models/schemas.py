@@ -49,6 +49,7 @@ class UserCreate(BaseModel):
     sleep_issues: Optional[List[str]] = []
     
     daily_step_goal: Optional[int] = 10000
+    daily_meals_count: Optional[int] = 3
 
     # Nutrition
     dietary_preferences: Optional[List[str]] = []
@@ -102,7 +103,8 @@ class UserUpdate(BaseModel):
     
     # Step goal - NEW
     daily_step_goal: Optional[int] = None
-
+    daily_meals_count: Optional[int] = None
+    
     # Nutrition
     dietary_preferences: Optional[List[str]] = None
     water_intake: Optional[float] = None
