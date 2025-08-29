@@ -1,8 +1,10 @@
 # api/users.py
 from fastapi import APIRouter, HTTPException, Depends
 import uuid
+from typing import Dict, Any
 from datetime import datetime
 import bcrypt
+
 from models.schemas import UserUpdate
 from models.schemas import UserCreate, UserResponse, UserLogin, UserLoginResponse
 from services.supabase_service import get_supabase_service 
