@@ -44,21 +44,18 @@ class SupabaseService:
             raise Exception(f"Failed to create user: {str(e)}")
     
     async def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """Get user by ID"""
+        """Get user by ID from database"""
         try:
-            print(f"🔍 Getting user by ID: {user_id}")
+            response = self.client.table('users') \
+                .select("*") \
+                .eq('id', user_id) \
+                .single() \
+                .execute()
             
-            response = self.client.table('users').select('*').eq('id', user_id).execute()
+            return response.data if response.data else None
             
-            if response.data:
-                print(f"✅ User found: {response.data[0]['email']}")
-                return response.data[0]
-            else:
-                print(f"❌ User not found: {user_id}")
-                return None
-                
         except Exception as e:
-            print(f"❌ Error getting user by ID: {e}")
+            print(f"❌ Supabase fetch error: {str(e)}")
             return None
     
     async def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
@@ -79,22 +76,41 @@ class SupabaseService:
             print(f"❌ Error getting user by email: {e}")
             return None
     
-    async def update_user(self, user_id: str, user_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Update user profile including step goal"""
+    async def update_user(self, user_id: str, update_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update user profile in database
+        Handles all Phase 1-3 fields
+        """
         try:
-            if 'water_intake' in user_data and 'water_intake_glasses' not in user_data:
-                user_data['water_intake_glasses'] = round(user_data['water_intake'] * 4)
-            elif 'water_intake_glasses' in user_data and 'water_intake' not in user_data:
-                user_data['water_intake'] = user_data['water_intake_glasses'] / 4.0
+            # Add timestamp
+            update_data['updated_at'] = datetime.utcnow().isoformat()
             
-            response = self.client.table('users').update(user_data).eq('id', user_id).execute()
-            if response.data:
+            # Handle array fields properly for PostgreSQL
+            array_fields = ['sleep_issues', 'dietary_preferences', 'preferred_workouts', 
+                          'medical_conditions', 'available_equipment']
+            
+            for field in array_fields:
+                if field in update_data:
+                    # Ensure it's a list and not None
+                    if update_data[field] is None:
+                        update_data[field] = []
+                    elif not isinstance(update_data[field], list):
+                        update_data[field] = [update_data[field]]
+            
+            # Execute update query
+            response = self.client.table('users') \
+                .update(update_data) \
+                .eq('id', user_id) \
+                .execute()
+            
+            if response.data and len(response.data) > 0:
                 return response.data[0]
             else:
-                raise Exception("No data returned from Supabase")
+                return None
+                
         except Exception as e:
-            print(f"❌ Error updating user: {e}")
-            raise Exception(f"Failed to update user: {str(e)}")
+            print(f"❌ Supabase update error: {str(e)}")
+            raise
 
     async def get_user(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Get user profile including step goal"""

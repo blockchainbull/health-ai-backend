@@ -37,7 +37,6 @@ class UserCreate(BaseModel):
     
     # Goals
     primary_goal: Optional[str] = None
-    fitness_goal: Optional[str] = None
     weight_goal: Optional[str] = None
     target_weight: Optional[float] = None
     goal_timeline: Optional[str] = None
@@ -91,7 +90,6 @@ class UserUpdate(BaseModel):
     
     # Goals
     primary_goal: Optional[str] = None
-    fitness_goal: Optional[str] = None
     weight_goal: Optional[str] = None
     target_weight: Optional[float] = None
     goal_timeline: Optional[str] = None
@@ -124,7 +122,7 @@ class UserUpdate(BaseModel):
     has_trainer: Optional[bool] = None
 
 class UserResponse(BaseModel):
-    """For API responses"""
+    """Complete user profile response"""
     id: str
     name: str
     email: str
@@ -133,11 +131,43 @@ class UserResponse(BaseModel):
     height: Optional[float] = None
     weight: Optional[float] = None
     activity_level: Optional[str] = None
+
+    # All Phase 1-3 fields
     daily_step_goal: Optional[int] = None
+    sleep_hours: Optional[float] = None
+    water_intake: Optional[float] = None
+    water_intake_glasses: Optional[int] = None
+    workout_frequency: Optional[int] = None
+    workout_duration: Optional[int] = None
+    fitness_level: Optional[str] = None
+    
+    bedtime: Optional[str] = None
+    wakeup_time: Optional[str] = None
+    sleep_issues: Optional[List[str]] = None
+    dietary_preferences: Optional[List[str]] = None
+    preferred_workouts: Optional[List[str]] = None
+    workout_location: Optional[str] = None
+    
+    medical_conditions: Optional[List[str]] = None
+    other_medical_condition: Optional[str] = None
+    available_equipment: Optional[List[str]] = None
+    has_trainer: Optional[bool] = None
+    
+    has_periods: Optional[bool] = None
+    pregnancy_status: Optional[str] = None
+    period_tracking_preference: Optional[str] = None
+    cycle_length: Optional[int] = None
+    cycle_length_regular: Optional[bool] = None
+    
     bmi: Optional[float] = None
     bmr: Optional[float] = None
     tdee: Optional[float] = None
+    
     primary_goal: Optional[str] = None
+    weight_goal: Optional[str] = None
+    target_weight: Optional[float] = None
+    goal_timeline: Optional[str] = None
+    
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

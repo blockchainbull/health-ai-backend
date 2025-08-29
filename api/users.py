@@ -1,5 +1,5 @@
 # api/users.py
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 import uuid
 from datetime import datetime
 import bcrypt
@@ -180,31 +180,70 @@ async def get_user(user_id: str):
         print(f"❌ Error getting user: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     
-@router.put("/update-user/{user_id}")
-async def update_user(user_id: str, user_data: UserUpdate):
+@router.put("/update-user/{user_id}", response_model=Dict[str, Any])
+async def update_user_profile(user_id: str, user_data: UserUpdate):
+    """
+    Update user profile with all Phase 1-3 fields
+    Saves directly to database
+    """
     try:
-        print(f"🔄 Updating user: {user_id}")
-        print(f"🔄 Update data: {user_data.dict(exclude_unset=True)}")
+        print(f"🔄 Updating user profile: {user_id}")
         
         supabase_service = get_supabase_service()
         
-        # Convert to dict and remove None values
-        update_data = {k: v for k, v in user_data.dict(exclude_unset=True).items() if v is not None}
+        # Get current user to verify they exist
+        existing_user = await supabase_service.get_user_by_id(user_id)
+        if not existing_user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Prepare update data - remove None values
+        update_data = user_data.dict(exclude_unset=True, exclude_none=True)
         
         if not update_data:
             raise HTTPException(status_code=400, detail="No data provided for update")
         
+        # Log what fields are being updated
+        print(f"📝 Updating fields: {list(update_data.keys())}")
+        
+        # Perform the update in database
         updated_user = await supabase_service.update_user(user_id, update_data)
         
         if not updated_user:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=500, detail="Failed to update user")
         
-        return {"success": True, "user": updated_user}
+        print(f"✅ Successfully updated user {user_id}")
+        
+        # Return complete updated profile
+        return {
+            "success": True,
+            "userProfile": updated_user,
+            "message": "Profile updated successfully",
+            "updatedFields": list(update_data.keys())
+        }
         
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Error updating user: {e}")
+        print(f"❌ Error updating user profile: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    
+@router.get("/users/{user_id}", response_model=UserResponse)
+async def get_user_profile(user_id: str):
+    """Get complete user profile from database"""
+    try:
+        supabase_service = get_supabase_service()
+        
+        user = await supabase_service.get_user_by_id(user_id)
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        return UserResponse(**user)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error fetching user: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/")
