@@ -1,7 +1,7 @@
 # services/chat_service.py
 import json
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from services.openai_service import get_openai_service
 from services.supabase_service import get_supabase_service
 
@@ -9,6 +9,91 @@ class HealthChatService:
     def __init__(self):
         self.openai_service = get_openai_service()
         self.supabase_service = get_supabase_service()
+    
+    async def get_today_activities(self, user_id: str, target_date: date) -> dict:
+        """Fetch all activities for a specific date"""
+        activities = {}
+        
+        try:
+            # Get today's meals
+            meals_response = await self.supabase_service.client.table('meal_logs')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('date', str(target_date))\
+                .execute()
+            activities['meals'] = meals_response.data if meals_response.data else []
+        except Exception as e:
+            print(f"⚠️ Error fetching meals: {e}")
+            activities['meals'] = []
+        
+        try:
+            # Get today's water intake
+            water_response = await self.supabase_service.client.table('water_logs')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('date', str(target_date))\
+                .execute()
+            activities['water'] = water_response.data[0] if water_response.data else {}
+        except Exception as e:
+            print(f"⚠️ Error fetching water: {e}")
+            activities['water'] = {}
+        
+        try:
+            # Get today's exercise
+            exercise_response = await self.supabase_service.client.table('exercise_logs')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('exercise_date', str(target_date))\
+                .execute()
+            activities['exercise'] = exercise_response.data if exercise_response.data else []
+        except Exception as e:
+            print(f"⚠️ Error fetching exercise: {e}")
+            activities['exercise'] = []
+        
+        try:
+            # Get today's sleep
+            sleep_response = await self.supabase_service.client.table('sleep_logs')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('date', str(target_date))\
+                .execute()
+            activities['sleep'] = sleep_response.data[0] if sleep_response.data else {}
+        except Exception as e:
+            print(f"⚠️ Error fetching sleep: {e}")
+            activities['sleep'] = {}
+        
+        try:
+            # Get today's supplements
+            activities['supplements'] = await self.supabase_service.get_supplement_status_by_date(user_id, target_date)
+        except Exception as e:
+            print(f"⚠️ Error fetching supplements: {e}")
+            activities['supplements'] = {}
+        
+        try:
+            # Get today's weight
+            weight_response = await self.supabase_service.client.table('weight_logs')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('date', str(target_date))\
+                .execute()
+            activities['weight'] = weight_response.data[0] if weight_response.data else {}
+        except Exception as e:
+            print(f"⚠️ Error fetching weight: {e}")
+            activities['weight'] = {}
+        
+        try:
+            # Get today's steps
+            steps_response = await self.supabase_service.client.table('step_logs')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('date', str(target_date))\
+                .execute()
+            activities['steps'] = steps_response.data[0] if steps_response.data else {}
+        except Exception as e:
+            print(f"⚠️ Error fetching steps: {e}")
+            activities['steps'] = {}
+        
+        return activities
     
     async def get_user_context(self, user_id: str) -> Dict[str, Any]:
         """Get comprehensive user context for chat"""
@@ -21,19 +106,21 @@ class HealthChatService:
                 print(f"❌ No user found for ID: {user_id}")
                 return {}
             
-            # Get recent activity data
+            # Get today's date
             today = datetime.now().date()
             week_ago = today - timedelta(days=7)
             
-            # Initialize empty data structures
+            # Get today's activities
+            today_activities = await self.get_today_activities(user_id, today)
+            
+            # Get recent activity data
             recent_meals = []
             recent_exercises = []
             recent_sleep = []
             recent_weight = []
-            supplement_prefs = []
-            today_supplements = {}
+            recent_water = []
             
-            # Try to get data, but don't fail if methods don't exist
+            # Try to get weekly data
             try:
                 recent_meals = await self.supabase_service.get_meals_by_date_range(
                     user_id, str(week_ago), str(today)
@@ -41,7 +128,6 @@ class HealthChatService:
             except AttributeError:
                 print("⚠️ get_meals_by_date_range method not available")
                 try:
-                    # Try alternative method
                     recent_meals = await self.supabase_service.get_meals_by_user(user_id)
                 except:
                     recent_meals = []
@@ -67,11 +153,16 @@ class HealthChatService:
                 recent_weight = []
             
             try:
-                supplement_prefs = await self.supabase_service.get_supplement_preferences(user_id)
-                today_supplements = await self.supabase_service.get_supplement_status_by_date(user_id, today)
+                # Get water history
+                water_response = await self.supabase_service.client.table('water_logs')\
+                    .select('*')\
+                    .eq('user_id', user_id)\
+                    .gte('date', str(week_ago))\
+                    .lte('date', str(today))\
+                    .execute()
+                recent_water = water_response.data if water_response.data else []
             except:
-                supplement_prefs = []
-                today_supplements = {}
+                recent_water = []
             
             # Calculate progress metrics
             context = {
@@ -95,24 +186,47 @@ class HealthChatService:
                     "sleep_hours": user.get('sleep_hours'),
                     "bedtime": user.get('bedtime'),
                     "wakeup_time": user.get('wakeup_time'),
+                    "water_intake_glasses": user.get('water_intake_glasses', 8),
+                    "step_goal": user.get('step_goal', 10000),
+                },
+                "today_progress": {
+                    "date": str(today),
+                    "meals": today_activities.get('meals', []),
+                    "total_calories": sum(m.get('calories', 0) for m in today_activities.get('meals', [])),
+                    "total_protein": sum(m.get('protein_g', 0) for m in today_activities.get('meals', [])),
+                    "total_carbs": sum(m.get('carbs_g', 0) for m in today_activities.get('meals', [])),
+                    "total_fat": sum(m.get('fat_g', 0) for m in today_activities.get('meals', [])),
+                    "water_glasses": today_activities.get('water', {}).get('glasses', 0),
+                    "exercise_minutes": sum(e.get('duration_minutes', 0) for e in today_activities.get('exercise', [])),
+                    "exercises_done": [e.get('exercise_type', 'Unknown') for e in today_activities.get('exercise', [])],
+                    "steps": today_activities.get('steps', {}).get('count', 0),
+                    "sleep_hours": today_activities.get('sleep', {}).get('total_hours', 0),
+                    "sleep_quality": today_activities.get('sleep', {}).get('quality', 'Not logged'),
+                    "supplements_taken": today_activities.get('supplements', {}),
+                    "weight_logged": today_activities.get('weight', {}).get('weight', None),
+                },
+                "weekly_summary": {
+                    "avg_daily_calories": self._calculate_avg_calories(recent_meals),
+                    "total_workouts": len(recent_exercises),
+                    "avg_sleep_hours": self._calculate_avg_sleep(recent_sleep),
+                    "weight_trend": self._calculate_weight_trend(recent_weight),
+                    "hydration_consistency": self._calculate_hydration_consistency(recent_water),
+                },
+                "goals_progress": {
+                    "daily_calorie_goal": user.get('tdee', 2000),
+                    "water_goal_glasses": user.get('water_intake_glasses', 8),
+                    "step_goal": user.get('step_goal', 10000),
+                    "sleep_goal_hours": user.get('sleep_hours', 8),
                 },
                 "recent_activity": {
                     "meals_this_week": len(recent_meals),
                     "avg_daily_calories": self._calculate_avg_calories(recent_meals),
                     "workouts_this_week": len(recent_exercises),
                     "total_exercise_minutes": sum(e.get('duration_minutes', 0) for e in recent_exercises),
-                    "avg_sleep_hours": self._calculate_avg_sleep(recent_sleep),
-                    "weight_trend": self._calculate_weight_trend(recent_weight),
-                    "supplement_adherence": self._calculate_supplement_adherence(supplement_prefs, today_supplements),
-                },
-                "goals_progress": {
-                    "weight_progress": self._calculate_weight_progress(user, recent_weight),
-                    "activity_consistency": self._calculate_activity_consistency(recent_exercises),
-                    "nutrition_quality": self._calculate_nutrition_quality(recent_meals),
                 }
             }
             
-            print(f"✅ User context prepared with {len(recent_meals)} meals, {len(recent_exercises)} workouts")
+            print(f"✅ User context prepared with today's data and {len(recent_meals)} weekly meals, {len(recent_exercises)} workouts")
             return context
             
         except Exception as e:
@@ -120,6 +234,14 @@ class HealthChatService:
             import traceback
             traceback.print_exc()
             return {}
+    
+    def _calculate_hydration_consistency(self, water_logs: List[Dict]) -> float:
+        """Calculate water intake consistency"""
+        if not water_logs:
+            return 0
+        
+        days_with_water = len([w for w in water_logs if w.get('glasses', 0) > 0])
+        return round((days_with_water / 7) * 100, 1)
     
     def _calculate_avg_calories(self, meals: List[Dict]) -> float:
         if not meals:
@@ -160,111 +282,95 @@ class HealthChatService:
         else:
             return f"losing_{abs(change):.1f}kg"
     
-    def _calculate_supplement_adherence(self, prefs: List[Dict], today_status: Dict) -> float:
-        if not prefs:
-            return 100.0
-        taken = sum(1 for taken in today_status.values() if taken)
-        return round((taken / len(prefs)) * 100, 1)
-    
-    def _calculate_weight_progress(self, user: Dict, recent_weight: List[Dict]) -> Dict:
-        target = user.get('target_weight')
-        current = user.get('weight')
-        starting = user.get('starting_weight', current)
+    def _create_system_prompt(self, context: Dict[str, Any]) -> str:
+        """Create enhanced system prompt with all activity data"""
+        user_profile = context.get('user_profile', {})
+        today_progress = context.get('today_progress', {})
+        weekly_summary = context.get('weekly_summary', {})
+        goals_progress = context.get('goals_progress', {})
         
-        if not all([target, current, starting]):
-            return {"status": "no_data"}
+        # Calculate completion percentages
+        calorie_completion = (today_progress.get('total_calories', 0) / goals_progress.get('daily_calorie_goal', 2000)) * 100
+        water_completion = (today_progress.get('water_glasses', 0) / goals_progress.get('water_goal_glasses', 8)) * 100
+        step_completion = (today_progress.get('steps', 0) / goals_progress.get('step_goal', 10000)) * 100
         
-        total_needed = abs(target - starting)
-        progress_made = abs(current - starting)
-        remaining = abs(target - current)
+        prompt = f"""You are a personalized AI health coach for {user_profile.get('name', 'User')}. You have access to their complete activity data.
+
+USER PROFILE:
+- Age: {user_profile.get('age')}, Gender: {user_profile.get('gender')}
+- Current Weight: {user_profile.get('weight')}kg, Target: {user_profile.get('target_weight')}kg
+- Primary Goal: {user_profile.get('primary_goal')}
+- Activity Level: {user_profile.get('activity_level')}
+- TDEE: {user_profile.get('tdee')} calories
+- Preferred Workouts: {', '.join(user_profile.get('preferred_workouts', []))}
+- Dietary Preferences: {', '.join(user_profile.get('dietary_preferences', []))}
+
+TODAY'S PROGRESS ({today_progress.get('date')}):
+📊 NUTRITION:
+- Meals Logged: {len(today_progress.get('meals', []))} meals
+- Calories: {today_progress.get('total_calories')} / {goals_progress.get('daily_calorie_goal')} ({calorie_completion:.0f}% complete)
+- Protein: {today_progress.get('total_protein')}g, Carbs: {today_progress.get('total_carbs')}g, Fat: {today_progress.get('total_fat')}g
+
+💧 HYDRATION:
+- Water: {today_progress.get('water_glasses')} / {goals_progress.get('water_goal_glasses')} glasses ({water_completion:.0f}% complete)
+
+🏃 ACTIVITY:
+- Exercise: {today_progress.get('exercise_minutes')} minutes
+- Exercises: {', '.join(today_progress.get('exercises_done', [])) if today_progress.get('exercises_done') else 'None logged'}
+- Steps: {today_progress.get('steps'):,} / {goals_progress.get('step_goal'):,} ({step_completion:.0f}% complete)
+
+😴 SLEEP:
+- Last Night: {today_progress.get('sleep_hours')} hours
+- Quality: {today_progress.get('sleep_quality')}
+
+⚖️ WEIGHT:
+- Today's Weight: {'Logged - ' + str(today_progress.get('weight_logged')) + 'kg' if today_progress.get('weight_logged') else 'Not logged'}
+
+💊 SUPPLEMENTS:
+- Taken: {sum(1 for taken in today_progress.get('supplements_taken', {}).values() if taken)} supplements
+
+WEEKLY TRENDS:
+- Average Daily Calories: {weekly_summary.get('avg_daily_calories')}
+- Total Workouts: {weekly_summary.get('total_workouts')}
+- Average Sleep: {weekly_summary.get('avg_sleep_hours')} hours
+- Weight Trend: {weekly_summary.get('weight_trend')}
+- Hydration Consistency: {weekly_summary.get('hydration_consistency')}%
+
+COACHING INSTRUCTIONS:
+1. Always reference their actual logged data when giving advice
+2. Be specific about what they've accomplished today and what's left to do
+3. Provide encouragement based on their progress percentages
+4. Suggest specific next actions based on incomplete activities
+5. Keep responses conversational, supportive, and actionable
+6. If they haven't logged certain activities, gently remind them to do so
+7. Use their name ({user_profile.get('name')}) occasionally to personalize responses
+
+Remember: You can see all their logged activities, so be specific and reference their actual data."""
         
-        progress_percentage = (progress_made / total_needed * 100) if total_needed > 0 else 100
-        
-        return {
-            "current_weight": current,
-            "target_weight": target,
-            "starting_weight": starting,
-            "progress_percentage": round(progress_percentage, 1),
-            "remaining": round(remaining, 1),
-            "on_track": self._is_on_track(user, recent_weight)
-        }
-    
-    def _calculate_activity_consistency(self, exercises: List[Dict]) -> Dict:
-        if not exercises:
-            return {"status": "no_activity", "score": 0}
-        
-        # Group by day
-        days_with_activity = set()
-        for exercise in exercises:
-            day = exercise.get('exercise_date', exercise.get('date', '')).split('T')[0]
-            if day:
-                days_with_activity.add(day)
-        
-        consistency_score = len(days_with_activity) / 7 * 100
-        
-        return {
-            "days_active": len(days_with_activity),
-            "consistency_score": round(consistency_score, 1),
-            "status": "good" if consistency_score >= 70 else "needs_improvement"
-        }
-    
-    def _calculate_nutrition_quality(self, meals: List[Dict]) -> Dict:
-        if not meals:
-            return {"status": "no_data", "score": 0}
-        
-        # Simple scoring based on variety and frequency
-        total_meals = len(meals)
-        days_with_meals = len(set(meal.get('date', '').split('T')[0] for meal in meals if meal.get('date')))
-        avg_meals_per_day = total_meals / max(days_with_meals, 1)
-        
-        score = min(100, (avg_meals_per_day / 3) * 100)
-        
-        return {
-            "total_meals": total_meals,
-            "days_tracked": days_with_meals,
-            "avg_meals_per_day": round(avg_meals_per_day, 1),
-            "score": round(score, 1),
-            "status": "good" if score >= 70 else "needs_improvement"
-        }
-    
-    def _is_on_track(self, user: Dict, recent_weight: List[Dict]) -> bool:
-        weight_goal = user.get('weight_goal', '')
-        if len(recent_weight) < 2:
-            return True
-        
-        latest = recent_weight[0]['weight']
-        previous = recent_weight[1]['weight']
-        change = latest - previous
-        
-        if 'lose' in weight_goal.lower():
-            return change <= 0
-        elif 'gain' in weight_goal.lower():
-            return change >= 0
-        else:  # maintain_weight
-            return abs(change) <= 1.0
+        return prompt.strip()
     
     async def generate_chat_response(self, user_id: str, message: str) -> str:
         """Generate chat response with message persistence"""
         try:
             print(f"Generating chat response for user: {user_id}")
             
-            # Save user message (no await)
+            # Save user message
             try:
                 await self.supabase_service.save_chat_message(user_id, message, is_user=True)
             except Exception as e:
                 print(f"Error saving user message: {e}")
             
-            # Get user context and recent conversation
+            # Get comprehensive user context with today's activities
             user_context = await self.get_user_context(user_id)
             
-            # Get recent messages (no await)
+            # Get recent messages
             recent_messages = []
             try:
                 recent_messages = await self.supabase_service.get_recent_chat_context(user_id, limit=10)
             except Exception as e:
                 print(f"Error getting recent chat context: {e}")
             
-            # Create system prompt
+            # Create enhanced system prompt with all activity data
             system_prompt = self._create_system_prompt(user_context)
             
             # Build conversation for OpenAI
@@ -288,26 +394,18 @@ class HealthChatService:
             
             reply = response.choices[0].message.content.strip()
             
-            # Save AI response (no await)
+            # Save AI response
             try:
                 await self.supabase_service.save_chat_message(user_id, reply, is_user=False)
             except Exception as e:
                 print(f"Error saving AI response: {e}")
             
-            print(f"Generated and saved response: {len(reply)} characters")
+            print(f"Generated response with full context: {len(reply)} characters")
             return reply
             
         except Exception as e:
             print(f"Error generating chat response: {e}")
-            fallback_response = self._get_fallback_response(message, user_id)
-            
-            # Save fallback response (no await)
-            try:
-                await self.supabase_service.save_chat_message(user_id, fallback_response, is_user=False)
-            except Exception as e:
-                print(f"Error saving fallback response: {e}")
-                
-            return fallback_response
+            return self._get_fallback_response(message, user_id)
     
     def _get_fallback_response(self, message: str, user_id: str) -> str:
         """Generate a helpful fallback response when AI is unavailable"""
@@ -321,77 +419,6 @@ class HealthChatService:
             return "Keep tracking your daily habits! Consistency with nutrition and exercise is key to reaching your goals."
         else:
             return "I'm having trouble connecting right now, but I'm here to help with your health journey! Try asking about nutrition, exercise, or your goals."
-    
-    def _create_system_prompt(self, context: Dict[str, Any], recent_conversation: List[Dict] = None) -> str:
-        """Create system prompt with user context and conversation awareness"""
-        user_profile = context.get('user_profile', {})
-        recent_activity = context.get('recent_activity', {})
-        goals_progress = context.get('goals_progress', {})
-        
-        # Base prompt (your existing prompt)
-        base_prompt = f"""
-    You are a personalized AI health and fitness coach continuing an ongoing conversation.
-
-    USER PROFILE:
-    - Name: {user_profile.get('name', 'User')}
-    - Current Weight: {user_profile.get('weight', 'Unknown')} kg
-    - Target Weight: {user_profile.get('target_weight', 'Unknown')} kg
-    - Weight Goal: {user_profile.get('weight_goal', 'Unknown')}
-    - TDEE: {user_profile.get('tdee', 'Unknown')} calories/day
-    - Preferred Workouts: {', '.join(user_profile.get('preferred_workouts', []))}
-
-    RECENT ACTIVITY:
-    - Meals this week: {recent_activity.get('meals_this_week', 0)}
-    - Workouts this week: {recent_activity.get('workouts_this_week', 0)}
-    - Weight progress: {goals_progress.get('weight_progress', {}).get('progress_percentage', 0)}%
-
-    CONVERSATION CONTEXT:
-    You are continuing an ongoing conversation. Reference previous topics naturally when relevant.
-    Be consistent with advice given earlier and build upon previous discussions.
-
-    COACHING STYLE:
-    - Be encouraging and reference their progress
-    - Provide specific, actionable advice
-    - Never mention "frameworks" or "plans" - speak naturally
-    - Use their name and reference previous conversations when appropriate
-    """
-        
-        return base_prompt.strip()
-    
-    def _get_goal_specific_guidance(self, weight_goal: str) -> str:
-        """Get goal-specific coaching guidance"""
-        weight_goal_lower = weight_goal.lower()
-        
-        if 'lose' in weight_goal_lower:
-            return """
-For weight loss focus:
-- Emphasize caloric deficit (eat fewer calories than TDEE)
-- Recommend high protein intake (1.6g per kg bodyweight)
-- Suggest cardio and strength training combination
-- Encourage hydration (10+ glasses water daily)
-- Promote portion control and meal tracking
-- Recommend 0.5-1kg loss per week as safe target
-"""
-        elif 'gain' in weight_goal_lower:
-            return """
-For weight gain focus:
-- Emphasize caloric surplus (eat more calories than TDEE)
-- Recommend high protein intake (2.0g per kg bodyweight)
-- Focus on strength training for muscle building
-- Suggest frequent meals (5-6 per day)
-- Encourage calorie-dense, nutritious foods
-- Recommend 0.25-0.5kg gain per week as safe target
-"""
-        else:  # maintain_weight
-            return """
-For weight maintenance focus:
-- Emphasize caloric balance (eat around TDEE calories)
-- Recommend balanced macronutrients
-- Suggest variety in exercise types
-- Encourage intuitive eating practices
-- Focus on sustainable lifestyle habits
-- Allow for small weight fluctuations (±1kg)
-"""
 
 # Global instance
 chat_service = None

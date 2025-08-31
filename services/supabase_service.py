@@ -208,27 +208,6 @@ class SupabaseService:
                 "message": f"Supabase connection failed: {str(e)}",
                 "timestamp": datetime.utcnow().isoformat()
             }
-        
-    
-    async def create_meal_entry(self, meal_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a meal entry"""
-        try:
-            print(f"🔍 Creating meal entry for user: {meal_data.get('user_id')}")
-        
-            if 'id' not in meal_data:
-                meal_data['id'] = str(uuid.uuid4())
-        
-            response = self.client.table('meal_entries').insert(meal_data).execute()
-        
-            if response.data:
-                print(f"✅ Meal entry created: {response.data[0]['id']}")
-                return response.data[0]
-            else:
-                raise Exception("No data returned from Supabase")
-            
-        except Exception as e:
-            print(f"❌ Error creating meal entry: {e}")
-            raise Exception(f"Failed to create meal entry: {str(e)}")
 
     async def get_user_meals(self, user_id: str, limit: int = 20, date_from: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get user meals for date range"""
@@ -1088,6 +1067,33 @@ class SupabaseService:
             print(f"Error getting/creating daily session: {e}")
             # Fallback - continue without session_id
             return None
+        
+    async def get_meals_by_date(self, user_id: str, date: date):
+        """Get all meals for a specific date"""
+        response = self.client.table('meal_entries')\
+            .select('*')\
+            .eq('user_id', user_id)\
+            .eq('date', str(date))\
+            .execute()
+        return response.data if response.data else []
+
+    async def get_water_by_date(self, user_id: str, date: date):
+        """Get water intake for a specific date"""
+        response = self.client.table('daily_water')\
+            .select('*')\
+            .eq('user_id', user_id)\
+            .eq('date', str(date))\
+            .execute()
+        return response.data[0] if response.data else {}
+
+    async def get_steps_by_date(self, user_id: str, date: date):
+        """Get step count for a specific date"""
+        response = self.client.table('daily_steps')\
+            .select('*')\
+            .eq('user_id', user_id)\
+            .eq('date', str(date))\
+            .execute()
+        return response.data[0] if response.data else {}
 
 # Global instance - we'll initialize this in main.py
 supabase_service = None

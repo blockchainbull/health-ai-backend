@@ -2241,6 +2241,8 @@ async def delete_period_entry(period_id: str):
 async def health_chat(request: dict, tz_offset: int = Depends(get_timezone_offset)):
     """Enhanced health chat with OpenAI integration"""
     try:
+
+        chat_service = get_chat_service()
         user_id = request.get('user_id')
         message = request.get('message')
         
@@ -2249,7 +2251,7 @@ async def health_chat(request: dict, tz_offset: int = Depends(get_timezone_offse
         
         print(f"💬 Chat request from user: {user_id}")
         
-        chat_service = get_chat_service()
+        
         response = await chat_service.generate_chat_response(user_id, message)
         
         return {
@@ -2272,19 +2274,25 @@ async def get_user_chat_context(user_id: str):
     try:
         print(f"💬 Getting chat context for user: {user_id}")
         
-        # Return basic context for now
+        # Get the actual user context using the chat service
+        chat_service = get_chat_service()
+        context = await chat_service.get_user_context(user_id)
+        
+        if not context:
+            return {
+                "success": False,
+                "message": "User not found",
+                "context": {}
+            }
+        
         return {
             "success": True,
-            "context": {
-                "user_profile": {"name": "User"},
-                "recent_activity": {},
-                "goals_progress": {}
-            }
+            "context": context
         }
         
     except Exception as e:
         print(f"❌ Error getting chat context: {e}")
-        return {"success": False, "context": {}}
+        return {"success": False, "context": {}, "error": str(e)}
     
 @router.get("/user/{user_id}/framework")
 async def get_user_framework(user_id: str):
