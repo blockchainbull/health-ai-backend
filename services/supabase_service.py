@@ -149,6 +149,24 @@ class SupabaseService:
             import traceback
             traceback.print_exc()
             raise e
+        
+    async def update_meal(self, meal_id: str, update_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Update a meal entry"""
+        try:
+            response = self.client.table('meal_entries').update(update_data).eq('id', meal_id).execute()
+            return response.data[0] if response.data else {}
+        except Exception as e:
+            print(f"❌ Error updating meal: {e}")
+            raise
+
+    async def delete_meal(self, meal_id: str) -> bool:
+        """Delete a meal entry"""
+        try:
+            self.client.table('meal_entries').delete().eq('id', meal_id).execute()
+            return True
+        except Exception as e:
+            print(f"❌ Error deleting meal: {e}")
+            raise
     
     # Chat/Conversation Operations (placeholder for later)
     async def create_conversation(self, conversation_data: Dict[str, Any]) -> Dict[str, Any]:

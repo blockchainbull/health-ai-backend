@@ -723,6 +723,57 @@ async def get_meal_history_flutter(user_id: str, limit: int = 50, date: str = No
         print(f"❌ Error getting Flutter meal history: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     
+@router.put("/meals/{meal_id}")
+async def update_meal_flutter(meal_id: str, meal_data: dict):
+    """Update meal entry for Flutter app"""
+    try:
+        print(f"📝 Updating meal {meal_id}")
+        
+        supabase_service = get_supabase_service()
+        
+        # Prepare update data
+        update_data = {
+            'food_item': meal_data.get('food_item'),
+            'quantity': meal_data.get('quantity'),
+            'calories': meal_data.get('calories'),
+            'protein_g': meal_data.get('protein_g'),
+            'carbs_g': meal_data.get('carbs_g'),
+            'fat_g': meal_data.get('fat_g'),
+        }
+        
+        # Update in database
+        updated = await supabase_service.update_meal(meal_id, update_data)
+        
+        return {
+            "success": True,
+            "message": "Meal updated successfully",
+            "meal": updated
+        }
+        
+    except Exception as e:
+        print(f"❌ Error updating meal: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/meals/{meal_id}")
+async def delete_meal_flutter(meal_id: str):
+    """Delete meal entry for Flutter app"""
+    try:
+        print(f"🗑️ Deleting meal {meal_id}")
+        
+        supabase_service = get_supabase_service()
+        
+        # Delete from database
+        await supabase_service.delete_meal(meal_id)
+        
+        return {
+            "success": True,
+            "message": "Meal deleted successfully"
+        }
+        
+    except Exception as e:
+        print(f"❌ Error deleting meal: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Water logging
 @router.post("/water", response_model=dict)
 async def save_water_entry(water_data: WaterEntryCreate, tz_offset: int = Depends(get_timezone_offset)):
