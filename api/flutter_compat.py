@@ -1161,13 +1161,25 @@ async def save_weight_entry(weight_data: WeightEntryCreate, tz_offset: int = Dep
         
         # Parse date
         try:
-            entry_date = get_user_date(weight_data.date, tz_offset)
+            if isinstance(weight_data.date, str):
+                # Parse the ISO datetime string
+                if 'T' in weight_data.date:
+                    # It's a full datetime string
+                    entry_datetime = datetime.fromisoformat(weight_data.date.replace('Z', '+00:00'))
+                    # Apply timezone offset if needed
+                    if tz_offset:
+                        entry_datetime = entry_datetime + timedelta(minutes=tz_offset)
+                else:
+                    # It's just a date, use current time
+                    entry_datetime = get_user_now(tz_offset)
+            else:
+                entry_datetime = get_user_now(tz_offset)
         except ValueError:
-            entry_date = get_user_now(tz_offset)
+            entry_datetime = get_user_now(tz_offset)
         
         weight_entry_data = {
             'user_id': weight_data.user_id,
-            'date': entry_date.isoformat(),
+            'date': entry_datetime.isoformat(),
             'weight': weight_data.weight,
             'notes': weight_data.notes,
             'body_fat_percentage': weight_data.body_fat_percentage,
