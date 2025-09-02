@@ -26,6 +26,7 @@ class MealEntryResponse(BaseModel):
     nutrition_notes: Optional[str] = None
     healthiness_score: Optional[int] = None
     suggestions: Optional[str] = None
+    data_source: Optional[str] = None
     meal_date: str
     logged_at: str
 

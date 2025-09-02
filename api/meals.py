@@ -10,21 +10,22 @@ from models.meal_schemas import (
     MealHistoryResponse
 )
 from services.supabase_service import get_supabase_service
-from services.openai_service import get_openai_service
+from services.meal_analysis_service import get_meal_analysis_service
+from services.meal_parser_service import get_meal_parser_service
 
 router = APIRouter()
 
 @router.post("/analyze", response_model=MealEntryResponse)
 async def analyze_meal(request: MealAnalysisRequest):
-    """Analyze meal using AI and save to database"""
+    """Analyze meal using smart parser for multi-food support"""
     try:
         print(f"🍽️ Analyzing meal for user {request.user_id}: {request.food_item}")
         
         # Get services
         supabase_service = get_supabase_service()
-        openai_service = get_openai_service()
+        parser_service = get_meal_parser_service()  # NEW
         
-        # Get user context for personalized analysis
+        # Get user context
         user = await supabase_service.get_user_by_id(request.user_id)
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
@@ -36,12 +37,17 @@ async def analyze_meal(request: MealAnalysisRequest):
             'tdee': user.get('tdee', 2000)
         }
         
-        # Analyze meal with AI
-        nutrition_data = await openai_service.analyze_meal(
-            food_item=request.food_item,
-            quantity=request.quantity,
-            user_context=user_context
+        # Use parser for intelligent multi-food handling
+        nutrition_data = await parser_service.parse_and_analyze_meal(
+            meal_input=request.food_item,
+            default_quantity=request.quantity,
+            user_context=user_context,
+            meal_type=request.meal_type
         )
+        
+        # Store components if it's a multi-food meal
+        if nutrition_data.get('components'):
+            print(f"✅ Analyzed {len(nutrition_data['components'])} food items")
         
         # Prepare meal entry data
         meal_entry = {
@@ -59,8 +65,8 @@ async def analyze_meal(request: MealAnalysisRequest):
             'sugar_g': nutrition_data['sugar_g'],
             'sodium_mg': nutrition_data['sodium_mg'],
             'nutrition_data': nutrition_data,
-            'data_source': 'ai',
-            'confidence_score': 0.8,
+            'data_source': nutrition_data.get('data_source', 'ai'),  # Track source
+            'confidence_score': nutrition_data.get('confidence_score', 0.8),
             'meal_date': request.meal_date or datetime.now().isoformat(),
             'logged_at': datetime.now().isoformat(),
             'updated_at': datetime.now().isoformat()
@@ -68,6 +74,14 @@ async def analyze_meal(request: MealAnalysisRequest):
         
         # Save to database
         saved_meal = await supabase_service.create_meal_entry(meal_entry)
+        
+        # Update daily nutrition
+        await update_daily_nutrition(
+            supabase_service, 
+            request.user_id, 
+            meal_entry['meal_date'],
+            nutrition_data
+        )
         
         # Return response
         return MealEntryResponse(
@@ -87,7 +101,8 @@ async def analyze_meal(request: MealAnalysisRequest):
             healthiness_score=nutrition_data.get('healthiness_score'),
             suggestions=nutrition_data.get('suggestions'),
             meal_date=saved_meal['meal_date'],
-            logged_at=saved_meal['logged_at']
+            logged_at=saved_meal['logged_at'],
+            data_source=saved_meal.get('data_source', 'ai')  # Include source in response
         )
         
     except Exception as e:

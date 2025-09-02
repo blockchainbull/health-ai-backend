@@ -1162,13 +1162,10 @@ async def save_weight_entry(weight_data: WeightEntryCreate, tz_offset: int = Dep
         # Parse date
         try:
             if isinstance(weight_data.date, str):
-                # Parse the ISO datetime string
+                # Parse the ISO datetime string preserving time
                 if 'T' in weight_data.date:
                     # It's a full datetime string
                     entry_datetime = datetime.fromisoformat(weight_data.date.replace('Z', '+00:00'))
-                    # Apply timezone offset if needed
-                    if tz_offset:
-                        entry_datetime = entry_datetime + timedelta(minutes=tz_offset)
                 else:
                     # It's just a date, use current time
                     entry_datetime = get_user_now(tz_offset)

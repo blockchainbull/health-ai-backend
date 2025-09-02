@@ -52,6 +52,16 @@ async def startup_event():
         init_openai_service()
         print("✅ OpenAI service initialized")
         
+        # Initialize USDA service - NEW
+        from services.usda_service import init_usda_service
+        init_usda_service()
+        print("✅ USDA service initialized")
+        
+        # Initialize Meal Analysis service - NEW
+        from services.meal_analysis_service import init_meal_analysis_service
+        init_meal_analysis_service()
+        print("✅ Meal Analysis service initialized")
+        
         # Start keep-alive (only in production)
         if os.getenv("RENDER_EXTERNAL_URL"):
             start_keep_alive()
