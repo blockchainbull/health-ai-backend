@@ -569,7 +569,19 @@ async def analyze_meal_flutter(meal_data: dict, tz_offset: int = Depends(get_tim
         
         # Get services
         supabase_service = get_supabase_service()
-        openai_service = get_openai_service()
+        
+        # Check if new services are available, otherwise fall back to OpenAI
+        try:
+            from services.meal_parser_service import get_meal_parser_service
+            parser_service = get_meal_parser_service()
+            use_new_parser = True
+            print("✅ Using new meal parser with USDA + ChatGPT")
+        except ImportError:
+            # Fall back to old OpenAI-only service
+            from services.openai_service import get_openai_service
+            openai_service = get_openai_service()
+            use_new_parser = False
+            print("⚠️ Using legacy OpenAI-only service")
         
         # Get user context
         user = await supabase_service.get_user_by_id(user_id)
@@ -583,17 +595,27 @@ async def analyze_meal_flutter(meal_data: dict, tz_offset: int = Depends(get_tim
             'tdee': user.get('tdee', 2000)
         }
         
-        # Analyze with AI
-        nutrition_data = await openai_service.analyze_meal(
-            food_item=food_item,
-            quantity=quantity,
-            user_context=user_context
-        )
+        # Analyze with appropriate service
+        if use_new_parser:
+            # Use new multi-food parser with USDA + ChatGPT
+            nutrition_data = await parser_service.parse_and_analyze_meal(
+                meal_input=food_item,
+                default_quantity=quantity,
+                user_context=user_context,
+                meal_type=meal_type
+            )
+            data_source = nutrition_data.get('data_source', 'multi-parser')
+        else:
+            # Use legacy OpenAI-only service
+            nutrition_data = await openai_service.analyze_meal(
+                food_item=food_item,
+                quantity=quantity,
+                user_context=user_context
+            )
+            data_source = 'ChatGPT'
         
-        print(f"🔍 AI returned nutrition data: {nutrition_data}")
-        print(f"    AI fiber_g: {nutrition_data.get('fiber_g')}")
-        print(f"    AI sugar_g: {nutrition_data.get('sugar_g')}")
-        print(f"    AI sodium_mg: {nutrition_data.get('sodium_mg')}")
+        print(f"✅ Analysis complete - Data source: {data_source}")
+        print(f"📊 Nutrition data: calories={nutrition_data.get('calories')}, source={data_source}")
         
         # Prepare meal entry
         meal_entry = {
@@ -647,9 +669,12 @@ async def analyze_meal_flutter(meal_data: dict, tz_offset: int = Depends(get_tim
                 "healthiness_score": nutrition_data.get('healthiness_score', 7),
                 "suggestions": nutrition_data.get('suggestions', ''),
                 "nutrition_notes": nutrition_data.get('nutrition_notes', ''),
+                "data_source": data_source,
+                "confidence_score": nutrition_data.get('confidence_score', 0.8),
+                "components": nutrition_data.get('components'),  # ADD THIS for multi-food
                 "logged_at": saved_meal['logged_at']
             },
-            "message": "Meal analyzed and logged successfully"
+            "message": f"Meal analyzed using {data_source} and logged successfully"
         }
         
     except Exception as e:

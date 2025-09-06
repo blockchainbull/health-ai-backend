@@ -52,15 +52,29 @@ async def startup_event():
         init_openai_service()
         print("✅ OpenAI service initialized")
         
-        # Initialize USDA service - NEW
-        from services.usda_service import init_usda_service
-        init_usda_service()
-        print("✅ USDA service initialized")
+        # Initialize USDA service
+        try:
+            from services.usda_service import init_usda_service
+            init_usda_service()
+            print("✅ USDA service initialized")
+        except ImportError:
+            print("⚠️ USDA service not found - using ChatGPT only")
         
-        # Initialize Meal Analysis service - NEW
-        from services.meal_analysis_service import init_meal_analysis_service
-        init_meal_analysis_service()
-        print("✅ Meal Analysis service initialized")
+        # Initialize Meal Analysis service
+        try:
+            from services.meal_analysis_service import init_meal_analysis_service
+            init_meal_analysis_service()
+            print("✅ Meal Analysis service initialized")
+        except ImportError:
+            print("⚠️ Meal Analysis service not found")
+        
+        # Initialize Meal Parser service
+        try:
+            from services.meal_parser_service import get_meal_parser_service
+            get_meal_parser_service()
+            print("✅ Meal Parser service initialized")
+        except ImportError:
+            print("⚠️ Meal Parser service not found")
         
         # Start keep-alive (only in production)
         if os.getenv("RENDER_EXTERNAL_URL"):

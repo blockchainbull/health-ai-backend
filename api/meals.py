@@ -65,7 +65,7 @@ async def analyze_meal(request: MealAnalysisRequest):
             'sugar_g': nutrition_data['sugar_g'],
             'sodium_mg': nutrition_data['sodium_mg'],
             'nutrition_data': nutrition_data,
-            'data_source': nutrition_data.get('data_source', 'ai'),  # Track source
+            'data_source': nutrition_data.get('data_source', 'ai'),
             'confidence_score': nutrition_data.get('confidence_score', 0.8),
             'meal_date': request.meal_date or datetime.now().isoformat(),
             'logged_at': datetime.now().isoformat(),
