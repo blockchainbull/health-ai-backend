@@ -7,8 +7,19 @@ from services.supabase_service import get_supabase_service
 
 class HealthChatService:
     def __init__(self):
-        self.openai_service = get_openai_service()
-        self.supabase_service = get_supabase_service()
+        try:
+            self.openai_service = get_openai_service()
+            print(f"✅ OpenAI service initialized: {self.openai_service is not None}")
+        except Exception as e:
+            print(f"❌ Failed to initialize OpenAI service: {e}")
+            self.openai_service = None
+            
+        try:
+            self.supabase_service = get_supabase_service()
+            print(f"✅ Supabase service initialized: {self.supabase_service is not None}")
+        except Exception as e:
+            print(f"❌ Failed to initialize Supabase service: {e}")
+            self.supabase_service = None
     
     async def get_today_activities(self, user_id: str, target_date: date) -> dict:
         """Fetch all activities for a specific date"""
@@ -16,7 +27,7 @@ class HealthChatService:
         
         try:
             # Get today's meals
-            meals_response = await self.supabase_service.client.table('meal_logs')\
+            meals_response = await self.supabase_service.client.table('meal_entries')\
                 .select('*')\
                 .eq('user_id', user_id)\
                 .eq('date', str(target_date))\
@@ -28,7 +39,7 @@ class HealthChatService:
         
         try:
             # Get today's water intake
-            water_response = await self.supabase_service.client.table('water_logs')\
+            water_response = await self.supabase_service.client.table('daily_water')\
                 .select('*')\
                 .eq('user_id', user_id)\
                 .eq('date', str(target_date))\
@@ -52,7 +63,7 @@ class HealthChatService:
         
         try:
             # Get today's sleep
-            sleep_response = await self.supabase_service.client.table('sleep_logs')\
+            sleep_response = await self.supabase_service.client.table('sleep_entries')\
                 .select('*')\
                 .eq('user_id', user_id)\
                 .eq('date', str(target_date))\
@@ -71,7 +82,7 @@ class HealthChatService:
         
         try:
             # Get today's weight
-            weight_response = await self.supabase_service.client.table('weight_logs')\
+            weight_response = await self.supabase_service.client.table('weight_entries')\
                 .select('*')\
                 .eq('user_id', user_id)\
                 .eq('date', str(target_date))\
@@ -83,7 +94,7 @@ class HealthChatService:
         
         try:
             # Get today's steps
-            steps_response = await self.supabase_service.client.table('step_logs')\
+            steps_response = await self.supabase_service.client.table('daily_steps')\
                 .select('*')\
                 .eq('user_id', user_id)\
                 .eq('date', str(target_date))\
@@ -113,58 +124,71 @@ class HealthChatService:
             # Get today's activities
             today_activities = await self.get_today_activities(user_id, today)
             
-            # Get recent activity data
+            # Get recent activity data (initialize all as empty lists)
             recent_meals = []
             recent_exercises = []
             recent_sleep = []
             recent_weight = []
             recent_water = []
             
-            # Try to get weekly data
-            try:
-                recent_meals = await self.supabase_service.get_meals_by_date_range(
-                    user_id, str(week_ago), str(today)
-                )
-            except AttributeError:
-                print("⚠️ get_meals_by_date_range method not available")
-                try:
-                    recent_meals = await self.supabase_service.get_meals_by_user(user_id)
-                except:
-                    recent_meals = []
-            except Exception as e:
-                print(f"⚠️ Error getting meals: {e}")
-                recent_meals = []
-            
+            # Try to get weekly exercise data
             try:
                 recent_exercises = await self.supabase_service.get_exercise_logs(
                     user_id, start_date=str(week_ago), end_date=str(today)
                 )
-            except:
+            except Exception as e:
+                print(f"⚠️ Error getting exercises: {e}")
                 recent_exercises = []
             
+            # Try to get sleep history
             try:
                 recent_sleep = await self.supabase_service.get_sleep_history(user_id, limit=7)
-            except:
+            except Exception as e:
+                print(f"⚠️ Error getting sleep: {e}")
                 recent_sleep = []
             
+            # Try to get weight history
             try:
                 recent_weight = await self.supabase_service.get_weight_history(user_id, limit=5)
-            except:
+            except Exception as e:
+                print(f"⚠️ Error getting weight: {e}")
                 recent_weight = []
             
+            # Try to get water history with corrected table name
             try:
-                # Get water history
-                water_response = await self.supabase_service.client.table('water_logs')\
+                water_response = await self.supabase_service.client.table('daily_water')\
                     .select('*')\
                     .eq('user_id', user_id)\
                     .gte('date', str(week_ago))\
                     .lte('date', str(today))\
                     .execute()
                 recent_water = water_response.data if water_response.data else []
-            except:
+            except Exception as e:
+                print(f"⚠️ Error getting water: {e}")
                 recent_water = []
             
-            # Calculate progress metrics
+            # Try to get meal history with corrected table name
+            try:
+                meals_response = await self.supabase_service.client.table('meal_entries')\
+                    .select('*')\
+                    .eq('user_id', user_id)\
+                    .gte('date', str(week_ago))\
+                    .lte('date', str(today))\
+                    .execute()
+                recent_meals = meals_response.data if meals_response.data else []
+            except Exception as e:
+                print(f"⚠️ Error getting meals: {e}")
+                recent_meals = []
+            
+            # Safe calculation of exercise minutes (handle None values)
+            def safe_get_duration(exercise):
+                duration = exercise.get('duration_minutes')
+                if duration is None:
+                    # Try alternative field names
+                    duration = exercise.get('duration', 0)
+                return duration if duration is not None else 0
+            
+            # Calculate progress metrics with safe None handling
             context = {
                 "user_profile": {
                     "name": user.get('name', 'User'),
@@ -193,14 +217,14 @@ class HealthChatService:
                     "date": str(today),
                     "meals": today_activities.get('meals', []),
                     "total_calories": sum(m.get('calories', 0) for m in today_activities.get('meals', [])),
-                    "total_protein": sum(m.get('protein_g', 0) for m in today_activities.get('meals', [])),
-                    "total_carbs": sum(m.get('carbs_g', 0) for m in today_activities.get('meals', [])),
-                    "total_fat": sum(m.get('fat_g', 0) for m in today_activities.get('meals', [])),
+                    "total_protein": sum(m.get('protein_g', 0) or 0 for m in today_activities.get('meals', [])),
+                    "total_carbs": sum(m.get('carbs_g', 0) or 0 for m in today_activities.get('meals', [])),
+                    "total_fat": sum(m.get('fat_g', 0) or 0 for m in today_activities.get('meals', [])),
                     "water_glasses": today_activities.get('water', {}).get('glasses', 0),
-                    "exercise_minutes": sum(e.get('duration_minutes', 0) for e in today_activities.get('exercise', [])),
+                    "exercise_minutes": sum(safe_get_duration(e) for e in today_activities.get('exercise', [])),
                     "exercises_done": [e.get('exercise_type', 'Unknown') for e in today_activities.get('exercise', [])],
-                    "steps": today_activities.get('steps', {}).get('count', 0),
-                    "sleep_hours": today_activities.get('sleep', {}).get('total_hours', 0),
+                    "steps": today_activities.get('steps', {}).get('count', 0) or today_activities.get('steps', {}).get('steps', 0),
+                    "sleep_hours": today_activities.get('sleep', {}).get('total_hours', 0) or today_activities.get('sleep', {}).get('hours', 0),
                     "sleep_quality": today_activities.get('sleep', {}).get('quality', 'Not logged'),
                     "supplements_taken": today_activities.get('supplements', {}),
                     "weight_logged": today_activities.get('weight', {}).get('weight', None),
@@ -213,20 +237,20 @@ class HealthChatService:
                     "hydration_consistency": self._calculate_hydration_consistency(recent_water),
                 },
                 "goals_progress": {
-                    "daily_calorie_goal": user.get('tdee', 2000),
-                    "water_goal_glasses": user.get('water_intake_glasses', 8),
-                    "step_goal": user.get('step_goal', 10000),
-                    "sleep_goal_hours": user.get('sleep_hours', 8),
+                    "daily_calorie_goal": user.get('tdee', 2000) or 2000,
+                    "water_goal_glasses": user.get('water_intake_glasses', 8) or 8,
+                    "step_goal": user.get('step_goal', 10000) or 10000,
+                    "sleep_goal_hours": user.get('sleep_hours', 8) or 8,
                 },
                 "recent_activity": {
                     "meals_this_week": len(recent_meals),
                     "avg_daily_calories": self._calculate_avg_calories(recent_meals),
                     "workouts_this_week": len(recent_exercises),
-                    "total_exercise_minutes": sum(e.get('duration_minutes', 0) for e in recent_exercises),
+                    "total_exercise_minutes": sum(safe_get_duration(e) for e in recent_exercises),
                 }
             }
             
-            print(f"✅ User context prepared with today's data and {len(recent_meals)} weekly meals, {len(recent_exercises)} workouts")
+            print(f"✅ User context prepared with {len(recent_meals)} meals, {len(recent_exercises)} workouts")
             return context
             
         except Exception as e:
@@ -289,21 +313,44 @@ class HealthChatService:
         weekly_summary = context.get('weekly_summary', {})
         goals_progress = context.get('goals_progress', {})
         
-        # Calculate completion percentages
-        calorie_completion = (today_progress.get('total_calories', 0) / goals_progress.get('daily_calorie_goal', 2000)) * 100
-        water_completion = (today_progress.get('water_glasses', 0) / goals_progress.get('water_goal_glasses', 8)) * 100
-        step_completion = (today_progress.get('steps', 0) / goals_progress.get('step_goal', 10000)) * 100
+        # Safe division to avoid None errors
+        def safe_percentage(value, goal):
+            if value is None or goal is None or goal == 0:
+                return 0
+            return (value / goal) * 100
+        
+        # Calculate completion percentages safely
+        calorie_completion = safe_percentage(
+            today_progress.get('total_calories', 0),
+            goals_progress.get('daily_calorie_goal', 2000)
+        )
+        water_completion = safe_percentage(
+            today_progress.get('water_glasses', 0),
+            goals_progress.get('water_goal_glasses', 8)
+        )
+        step_completion = safe_percentage(
+            today_progress.get('steps', 0),
+            goals_progress.get('step_goal', 10000)
+        )
+        
+        # Use safe formatting for numbers that might be None
+        def safe_format(value, format_str="{}", default="Not set"):
+            if value is None:
+                return default
+            if format_str == "{:,}":
+                return f"{value:,}"
+            return str(value)
         
         prompt = f"""You are a personalized AI health coach for {user_profile.get('name', 'User')}. You have access to their complete activity data.
 
 USER PROFILE:
-- Age: {user_profile.get('age')}, Gender: {user_profile.get('gender')}
-- Current Weight: {user_profile.get('weight')}kg, Target: {user_profile.get('target_weight')}kg
-- Primary Goal: {user_profile.get('primary_goal')}
-- Activity Level: {user_profile.get('activity_level')}
-- TDEE: {user_profile.get('tdee')} calories
-- Preferred Workouts: {', '.join(user_profile.get('preferred_workouts', []))}
-- Dietary Preferences: {', '.join(user_profile.get('dietary_preferences', []))}
+- Age: {safe_format(user_profile.get('age'))}, Gender: {safe_format(user_profile.get('gender'))}
+- Current Weight: {safe_format(user_profile.get('weight'))}kg, Target: {safe_format(user_profile.get('target_weight'))}kg
+- Primary Goal: {safe_format(user_profile.get('primary_goal'))}
+- Activity Level: {safe_format(user_profile.get('activity_level'))}
+- TDEE: {safe_format(user_profile.get('tdee'))} calories
+- Preferred Workouts: {', '.join(user_profile.get('preferred_workouts', [])) or 'Not specified'}
+- Dietary Preferences: {', '.join(user_profile.get('dietary_preferences', [])) or 'None specified'}
 
 TODAY'S PROGRESS ({today_progress.get('date')}):
 📊 NUTRITION:
@@ -317,7 +364,7 @@ TODAY'S PROGRESS ({today_progress.get('date')}):
 🏃 ACTIVITY:
 - Exercise: {today_progress.get('exercise_minutes')} minutes
 - Exercises: {', '.join(today_progress.get('exercises_done', [])) if today_progress.get('exercises_done') else 'None logged'}
-- Steps: {today_progress.get('steps'):,} / {goals_progress.get('step_goal'):,} ({step_completion:.0f}% complete)
+- Steps: {safe_format(today_progress.get('steps'), '{:,}')} / {safe_format(goals_progress.get('step_goal'), '{:,}')} ({step_completion:.0f}% complete)
 
 😴 SLEEP:
 - Last Night: {today_progress.get('sleep_hours')} hours
@@ -326,15 +373,11 @@ TODAY'S PROGRESS ({today_progress.get('date')}):
 ⚖️ WEIGHT:
 - Today's Weight: {'Logged - ' + str(today_progress.get('weight_logged')) + 'kg' if today_progress.get('weight_logged') else 'Not logged'}
 
-💊 SUPPLEMENTS:
-- Taken: {sum(1 for taken in today_progress.get('supplements_taken', {}).values() if taken)} supplements
-
 WEEKLY TRENDS:
-- Average Daily Calories: {weekly_summary.get('avg_daily_calories')}
+- Average Daily Calories: {safe_format(weekly_summary.get('avg_daily_calories'))}
 - Total Workouts: {weekly_summary.get('total_workouts')}
-- Average Sleep: {weekly_summary.get('avg_sleep_hours')} hours
+- Average Sleep: {safe_format(weekly_summary.get('avg_sleep_hours'))} hours
 - Weight Trend: {weekly_summary.get('weight_trend')}
-- Hydration Consistency: {weekly_summary.get('hydration_consistency')}%
 
 COACHING INSTRUCTIONS:
 1. Always reference their actual logged data when giving advice
@@ -352,26 +395,29 @@ Remember: You can see all their logged activities, so be specific and reference 
     async def generate_chat_response(self, user_id: str, message: str) -> str:
         """Generate chat response with message persistence"""
         try:
-            print(f"Generating chat response for user: {user_id}")
+            print(f"💬 Generating chat response for user: {user_id}")
             
             # Save user message
             try:
                 await self.supabase_service.save_chat_message(user_id, message, is_user=True)
             except Exception as e:
-                print(f"Error saving user message: {e}")
+                print(f"⚠️ Error saving user message: {e}")
             
             # Get comprehensive user context with today's activities
             user_context = await self.get_user_context(user_id)
+            print(f"📊 User context retrieved: {bool(user_context)}")
             
             # Get recent messages
             recent_messages = []
             try:
                 recent_messages = await self.supabase_service.get_recent_chat_context(user_id, limit=10)
+                print(f"💬 Retrieved {len(recent_messages)} recent messages")
             except Exception as e:
-                print(f"Error getting recent chat context: {e}")
+                print(f"⚠️ Error getting recent chat context: {e}")
             
             # Create enhanced system prompt with all activity data
             system_prompt = self._create_system_prompt(user_context)
+            print(f"📝 System prompt created: {len(system_prompt)} characters")
             
             # Build conversation for OpenAI
             messages = [{"role": "system", "content": system_prompt}]
@@ -384,6 +430,8 @@ Remember: You can see all their logged activities, so be specific and reference 
             # Add current message
             messages.append({"role": "user", "content": message})
             
+            print(f"🤖 Calling OpenAI with {len(messages)} messages...")
+            
             # Get AI response
             response = await self.openai_service.client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -393,32 +441,25 @@ Remember: You can see all their logged activities, so be specific and reference 
             )
             
             reply = response.choices[0].message.content.strip()
+            print(f"✅ OpenAI response received: {len(reply)} characters")
             
             # Save AI response
             try:
                 await self.supabase_service.save_chat_message(user_id, reply, is_user=False)
             except Exception as e:
-                print(f"Error saving AI response: {e}")
+                print(f"⚠️ Error saving AI response: {e}")
             
-            print(f"Generated response with full context: {len(reply)} characters")
             return reply
             
         except Exception as e:
-            print(f"Error generating chat response: {e}")
-            return self._get_fallback_response(message, user_id)
-    
-    def _get_fallback_response(self, message: str, user_id: str) -> str:
-        """Generate a helpful fallback response when AI is unavailable"""
-        message_lower = message.lower()
-        
-        if any(word in message_lower for word in ['dinner', 'food', 'meal', 'eat']):
-            return "For a healthy dinner, I recommend lean protein with vegetables and complex carbs. Try grilled chicken with roasted vegetables, or salmon with quinoa and steamed broccoli."
-        elif any(word in message_lower for word in ['exercise', 'workout', 'fitness']):
-            return "For today's workout, try a mix of cardio and strength training. Even 30 minutes of walking or bodyweight exercises can make a difference!"
-        elif any(word in message_lower for word in ['progress', 'weight', 'goal']):
-            return "Keep tracking your daily habits! Consistency with nutrition and exercise is key to reaching your goals."
-        else:
-            return "I'm having trouble connecting right now, but I'm here to help with your health journey! Try asking about nutrition, exercise, or your goals."
+            # LOG THE ACTUAL ERROR
+            print(f"❌ Error generating chat response: {str(e)}")
+            print(f"❌ Error type: {type(e).__name__}")
+            import traceback
+            traceback.print_exc()  # This will print the full stack trace
+            
+            # Return fallback with error info for debugging
+            return f"I'm having trouble connecting to my AI service. Error: {str(e)[:100]}... Please try again or ask about nutrition, exercise, or your goals."
 
 # Global instance
 chat_service = None
