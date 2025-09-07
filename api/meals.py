@@ -165,31 +165,81 @@ async def update_daily_nutrition(supabase_service, user_id: str, meal_date: str,
     try:
         date_only = meal_date.split('T')[0]  # Get just the date part
         
+        # Get user profile to determine calorie goal
+        user = await supabase_service.get_user(user_id)
+        
+        # Calculate calorie goal based on user's goal and TDEE
+        calorie_goal = calculate_calorie_goal(user)
+        
         # Get existing daily nutrition or create new
         existing = await supabase_service.get_daily_nutrition(user_id, date_only)
         
         if existing:
-            # Update existing
+            # Update existing - include ALL nutrition fields
             updated_data = {
-                'calories_consumed': existing['calories_consumed'] + nutrition_data['calories'],
-                'protein_g': existing['protein_g'] + nutrition_data['protein_g'],
-                'carbs_g': existing['carbs_g'] + nutrition_data['carbs_g'],
-                'fat_g': existing['fat_g'] + nutrition_data['fat_g'],
-                'meals_logged': existing['meals_logged'] + 1
+                'calories_consumed': existing.get('calories_consumed', 0) + nutrition_data.get('calories', 0),
+                'protein_g': existing.get('protein_g', 0) + nutrition_data.get('protein_g', 0),
+                'carbs_g': existing.get('carbs_g', 0) + nutrition_data.get('carbs_g', 0),
+                'fat_g': existing.get('fat_g', 0) + nutrition_data.get('fat_g', 0),
+                'fiber_g': existing.get('fiber_g', 0) + nutrition_data.get('fiber_g', 0),
+                'sugar_g': existing.get('sugar_g', 0) + nutrition_data.get('sugar_g', 0),
+                'sodium_mg': existing.get('sodium_mg', 0) + nutrition_data.get('sodium_mg', 0),
+                'meals_logged': existing.get('meals_logged', 0) + 1,
+                'calorie_goal': calorie_goal  # Update goal in case user profile changed
             }
             await supabase_service.update_daily_nutrition(existing['id'], updated_data)
         else:
-            # Create new
+            # Create new - include ALL nutrition fields
             new_data = {
                 'user_id': user_id,
                 'date': date_only,
-                'calories_consumed': nutrition_data['calories'],
-                'protein_g': nutrition_data['protein_g'],
-                'carbs_g': nutrition_data['carbs_g'], 
-                'fat_g': nutrition_data['fat_g'],
-                'meals_logged': 1
+                'calories_consumed': nutrition_data.get('calories', 0),
+                'protein_g': nutrition_data.get('protein_g', 0),
+                'carbs_g': nutrition_data.get('carbs_g', 0),
+                'fat_g': nutrition_data.get('fat_g', 0),
+                'fiber_g': nutrition_data.get('fiber_g', 0),
+                'sugar_g': nutrition_data.get('sugar_g', 0),
+                'sodium_mg': nutrition_data.get('sodium_mg', 0),
+                'meals_logged': 1,
+                'calorie_goal': calorie_goal,
+                'water_goal_ml': 2000,
+                'step_goal': user.get('step_goal', 10000)
             }
             await supabase_service.create_daily_nutrition(new_data)
             
     except Exception as e:
         print(f"❌ Error updating daily nutrition: {e}")
+        pass
+
+def calculate_calorie_goal(user_profile: dict) -> int:
+    """Calculate daily calorie goal based on user's TDEE and weight goal"""
+    
+    tdee = user_profile.get('tdee', 2000)
+    weight_goal = user_profile.get('weight_goal', 'maintain_weight').lower()
+    
+    # Normalize the goal (handle different formats)
+    if 'lose' in weight_goal:
+        weight_goal = 'lose_weight'
+    elif 'gain' in weight_goal:
+        weight_goal = 'gain_weight'
+    else:
+        weight_goal = 'maintain_weight'
+    
+    # Calculate based on goal
+    if weight_goal == 'lose_weight':
+        # Moderate deficit: 15-20% below TDEE
+        calorie_goal = int(tdee * 0.82)  # 18% deficit
+        
+    elif weight_goal == 'gain_weight':
+        # Moderate surplus: 10-15% above TDEE  
+        calorie_goal = int(tdee * 1.12)  # 12% surplus
+        
+    else:  # maintain_weight
+        # Maintenance: equal to TDEE
+        calorie_goal = int(tdee)
+    
+    # Safety bounds (never go too extreme)
+    min_calories = 1200 if user_profile.get('gender', '').lower() == 'female' else 1500
+    max_calories = min(4000, int(tdee * 1.5))
+    
+    return max(min_calories, min(calorie_goal, max_calories))

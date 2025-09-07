@@ -167,6 +167,73 @@ class SupabaseService:
         except Exception as e:
             print(f"❌ Error deleting meal: {e}")
             raise
+
+    async def get_daily_nutrition(self, user_id: str, date: str) -> Optional[Dict[str, Any]]:
+        """Get daily nutrition summary for a specific date"""
+        try:
+            response = self.client.table('daily_nutrition')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('date', date)\
+                .execute()
+            
+            if response.data and len(response.data) > 0:
+                return response.data[0]
+            return None
+        except Exception as e:
+            print(f"❌ Error getting daily nutrition: {e}")
+            return None
+
+    async def create_daily_nutrition(self, nutrition_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new daily nutrition entry"""
+        try:
+            # Add timestamps
+            nutrition_data['created_at'] = datetime.now().isoformat()
+            nutrition_data['updated_at'] = datetime.now().isoformat()
+            
+            response = self.client.table('daily_nutrition').insert(nutrition_data).execute()
+            if response.data:
+                return response.data[0]
+            else:
+                raise Exception("No data returned from Supabase")
+        except Exception as e:
+            print(f"❌ Error creating daily nutrition: {e}")
+            raise Exception(f"Failed to create daily nutrition: {str(e)}")
+
+    async def update_daily_nutrition(self, entry_id: str, update_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Update an existing daily nutrition entry"""
+        try:
+            # Add timestamp
+            update_data['updated_at'] = datetime.now().isoformat()
+            
+            response = self.client.table('daily_nutrition')\
+                .update(update_data)\
+                .eq('id', entry_id)\
+                .execute()
+            
+            if response.data:
+                return response.data[0]
+            else:
+                raise Exception("No data returned from Supabase")
+        except Exception as e:
+            print(f"❌ Error updating daily nutrition: {e}")
+            raise Exception(f"Failed to update daily nutrition: {str(e)}")
+
+    async def get_daily_nutrition_range(self, user_id: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+        """Get daily nutrition summaries for a date range"""
+        try:
+            response = self.client.table('daily_nutrition')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .gte('date', start_date)\
+                .lte('date', end_date)\
+                .order('date', desc=True)\
+                .execute()
+            
+            return response.data or []
+        except Exception as e:
+            print(f"❌ Error getting daily nutrition range: {e}")
+            return []
     
     # Chat/Conversation Operations (placeholder for later)
     async def create_conversation(self, conversation_data: Dict[str, Any]) -> Dict[str, Any]:
