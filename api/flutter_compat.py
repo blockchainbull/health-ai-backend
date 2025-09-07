@@ -2275,7 +2275,6 @@ async def delete_period_entry(period_id: str):
 async def health_chat(request: dict, tz_offset: int = Depends(get_timezone_offset)):
     """Enhanced health chat with OpenAI integration"""
     try:
-
         chat_service = get_chat_service()
         user_id = request.get('user_id')
         message = request.get('message')
@@ -2285,7 +2284,6 @@ async def health_chat(request: dict, tz_offset: int = Depends(get_timezone_offse
         
         print(f"💬 Chat request from user: {user_id}")
         
-        
         response = await chat_service.generate_chat_response(user_id, message)
         
         return {
@@ -2293,13 +2291,12 @@ async def health_chat(request: dict, tz_offset: int = Depends(get_timezone_offse
             "response": response,
             "timestamp": get_user_now(tz_offset).isoformat()
         }
-        
     except Exception as e:
         print(f"❌ Error in health chat: {e}")
         return {
             "success": False,
-            "response": "I'm having trouble right now, but I'm here to help with your health journey! Try asking about nutrition, exercise, or your goals.",
-            "error": str(e)
+            "response": "I'm having trouble connecting. Please check your connection and try again.",
+            "error": str(e) 
         }
 
 @router.get("/chat/context/{user_id}")

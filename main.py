@@ -23,8 +23,6 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",                                # Local development
-        "http://localhost:*",                                   # Any local port
         "https://*.vercel.app",                                 # All Vercel subdomains
         "https://vercel.app",                                   # Vercel domain
         "https://*.onrender.com",                               # Render domains
