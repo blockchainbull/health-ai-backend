@@ -15,6 +15,8 @@ class StepEntryCreate(BaseModel):
 
     class Config:
         allow_population_by_field_name = True
+        populate_by_name = True
+        use_enum_values = True
 
 class StepEntryUpdate(BaseModel):
     steps: Optional[int] = None
