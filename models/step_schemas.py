@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 from typing import Optional
 
 class StepEntryCreate(BaseModel):
-    user_id: str = Field(alias="userId")
+    userId: str = Field(alias="userId")
     date: str
     steps: int = 0
     goal: int = 10000
