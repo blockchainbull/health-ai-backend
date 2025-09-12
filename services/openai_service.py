@@ -77,13 +77,13 @@ class OpenAIService:
             
             # Ensure all required fields exist with proper types
             nutrition_data = {
-                "calories": int(nutrition_data.get("calories", 200)),
-                "protein_g": float(nutrition_data.get("protein_g", 10.0)),
-                "carbs_g": float(nutrition_data.get("carbs_g", 25.0)),
-                "fat_g": float(nutrition_data.get("fat_g", 8.0)),
-                "fiber_g": float(nutrition_data.get("fiber_g", 2.0)),
-                "sugar_g": float(nutrition_data.get("sugar_g", 3.0)),
-                "sodium_mg": int(nutrition_data.get("sodium_mg", 200)),
+                "calories": int(float(nutrition_data.get("calories", 200))),
+                "protein_g": round(float(nutrition_data.get("protein_g", 10.0)), 1),
+                "carbs_g": round(float(nutrition_data.get("carbs_g", 25.0)), 1),
+                "fat_g": round(float(nutrition_data.get("fat_g", 8.0)), 1),
+                "fiber_g": round(float(nutrition_data.get("fiber_g", 2.0)), 1),
+                "sugar_g": round(float(nutrition_data.get("sugar_g", 3.0)), 1),
+                "sodium_mg": int(float(nutrition_data.get("sodium_mg", 200))),
                 "serving_description": str(nutrition_data.get("serving_description", f"{quantity} of {food_item}")),
                 "nutrition_notes": str(nutrition_data.get("nutrition_notes", "")),
                 "healthiness_score": int(nutrition_data.get("healthiness_score", 6)),

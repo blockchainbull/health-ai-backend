@@ -4,6 +4,7 @@ from typing import Dict, Any, Optional, List
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 import uuid
+from meals import update_daily_nutrition
 
 from models.water_schemas import WaterEntryCreate
 from services.supabase_service import get_supabase_service
@@ -551,7 +552,7 @@ async def get_daily_summary_flutter(user_id: str, date: str = None, tz_offset: i
 
 @router.post("/meals/analyze")
 async def analyze_meal_flutter(meal_data: dict, tz_offset: int = Depends(get_timezone_offset)):
-    """Analyze meal for Flutter app"""
+    """Analyze meal for Flutter app with robust error handling"""
     try:
         print(f"🍽️ Flutter meal analysis: {meal_data}")
         
@@ -570,20 +571,7 @@ async def analyze_meal_flutter(meal_data: dict, tz_offset: int = Depends(get_tim
         # Get services
         supabase_service = get_supabase_service()
         
-        # Check if new services are available, otherwise fall back to OpenAI
-        try:
-            from services.meal_parser_service import get_meal_parser_service
-            parser_service = get_meal_parser_service()
-            use_new_parser = True
-            print("✅ Using new meal parser with USDA + ChatGPT")
-        except ImportError:
-            # Fall back to old OpenAI-only service
-            from services.openai_service import get_openai_service
-            openai_service = get_openai_service()
-            use_new_parser = False
-            print("⚠️ Using legacy OpenAI-only service")
-        
-        # Get user context
+        # Get user context first
         user = await supabase_service.get_user_by_id(user_id)
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
@@ -595,9 +583,15 @@ async def analyze_meal_flutter(meal_data: dict, tz_offset: int = Depends(get_tim
             'tdee': user.get('tdee', 2000)
         }
         
-        # Analyze with appropriate service
-        if use_new_parser:
-            # Use new multi-food parser with USDA + ChatGPT
+        # Try to use the new parser first, with proper error handling
+        nutrition_data = None
+        data_source = 'unknown'
+        
+        try:
+            from services.meal_parser_service import get_meal_parser_service
+            parser_service = get_meal_parser_service()
+            print("✅ Attempting to use new meal parser")
+            
             nutrition_data = await parser_service.parse_and_analyze_meal(
                 meal_input=food_item,
                 default_quantity=quantity,
@@ -605,17 +599,73 @@ async def analyze_meal_flutter(meal_data: dict, tz_offset: int = Depends(get_tim
                 meal_type=meal_type
             )
             data_source = nutrition_data.get('data_source', 'multi-parser')
-        else:
-            # Use legacy OpenAI-only service
-            nutrition_data = await openai_service.analyze_meal(
-                food_item=food_item,
-                quantity=quantity,
-                user_context=user_context
-            )
-            data_source = 'ChatGPT'
+            print(f"✅ Successfully parsed with new parser: {data_source}")
+            
+        except ImportError as e:
+            print(f"⚠️ Meal parser service not available: {e}")
+        except Exception as e:
+            print(f"⚠️ Error using meal parser: {e}")
+            import traceback
+            traceback.print_exc()
         
-        print(f"✅ Analysis complete - Data source: {data_source}")
-        print(f"📊 Nutrition data: calories={nutrition_data.get('calories')}, source={data_source}")
+        # If parser failed, try OpenAI service as fallback
+        if nutrition_data is None:
+            try:
+                from services.openai_service import get_openai_service
+                openai_service = get_openai_service()
+                print("⚠️ Falling back to OpenAI-only service")
+                
+                nutrition_data = await openai_service.analyze_meal(
+                    food_item=food_item,
+                    quantity=quantity,
+                    user_context=user_context
+                )
+                data_source = 'ChatGPT'
+                print(f"✅ Successfully analyzed with OpenAI")
+                
+            except Exception as e:
+                print(f"❌ OpenAI service also failed: {e}")
+                import traceback
+                traceback.print_exc()
+                
+                # Last resort: return basic estimated nutrition
+                print("⚠️ Using fallback nutrition estimates")
+                nutrition_data = {
+                    "calories": 200,
+                    "protein_g": 10.0,
+                    "carbs_g": 25.0,
+                    "fat_g": 8.0,
+                    "fiber_g": 2.0,
+                    "sugar_g": 5.0,
+                    "sodium_mg": 300,
+                    "serving_description": f"{quantity} of {food_item}",
+                    "nutrition_notes": "Estimated values - analysis service temporarily unavailable",
+                    "healthiness_score": 5,
+                    "suggestions": "Try logging this meal again later for more accurate analysis",
+                    "data_source": "fallback-estimate"
+                }
+                data_source = 'fallback'
+        
+        # Ensure all required fields exist
+        nutrition_data = {
+            "calories": int(nutrition_data.get("calories", 200)),
+            "protein_g": float(nutrition_data.get("protein_g", 10.0)),
+            "carbs_g": float(nutrition_data.get("carbs_g", 25.0)),
+            "fat_g": float(nutrition_data.get("fat_g", 8.0)),
+            "fiber_g": float(nutrition_data.get("fiber_g", 2.0)),
+            "sugar_g": float(nutrition_data.get("sugar_g", 5.0)),
+            "sodium_mg": int(nutrition_data.get("sodium_mg", 300)),
+            "serving_description": str(nutrition_data.get("serving_description", f"{quantity} of {food_item}")),
+            "nutrition_notes": str(nutrition_data.get("nutrition_notes", "")),
+            "healthiness_score": int(nutrition_data.get("healthiness_score", 5)),
+            "suggestions": str(nutrition_data.get("suggestions", "")),
+            "components": nutrition_data.get("components"),  # May be None
+            "data_source": data_source,
+            "confidence_score": nutrition_data.get("confidence_score", 0.8)
+        }
+        
+        print(f"✅ Final nutrition data ready - Source: {data_source}")
+        print(f"📊 Calories: {nutrition_data['calories']}, Protein: {nutrition_data['protein_g']}g")
         
         # Prepare meal entry
         meal_entry = {
@@ -634,24 +684,53 @@ async def analyze_meal_flutter(meal_data: dict, tz_offset: int = Depends(get_tim
             'sodium_mg': nutrition_data['sodium_mg'],
             'nutrition_data': nutrition_data,
             'data_source': 'ai',
-            'confidence_score': 0.8,
+            'confidence_score': nutrition_data['confidence_score'],
             'meal_date': get_user_now(tz_offset).isoformat(),
             'logged_at': get_user_now(tz_offset).isoformat(),
             'updated_at': get_user_now(tz_offset).isoformat()
         }
         
-        print(f"🔍 Meal entry to save: {meal_entry}")
-        print(f"    Entry fiber_g: {meal_entry['fiber_g']}")
-        print(f"    Entry sugar_g: {meal_entry['sugar_g']}")
-        print(f"    Entry sodium_mg: {meal_entry['sodium_mg']}")
-        
         # Save to database
-        saved_meal = await supabase_service.create_meal_entry(meal_entry)
+        try:
+            saved_meal = await supabase_service.create_meal_entry(meal_entry)
+            print(f"✅ Meal saved successfully with ID: {saved_meal['id']}")
+        except Exception as e:
+            print(f"❌ Error saving to database: {e}")
+            # Return the analysis even if save failed
+            return {
+                "success": False,
+                "error": "Analysis complete but failed to save to database",
+                "meal": {
+                    "id": meal_entry['id'],
+                    "name": food_item,
+                    "quantity": quantity,
+                    "calories": nutrition_data['calories'],
+                    "protein": nutrition_data['protein_g'],
+                    "carbs": nutrition_data['carbs_g'],
+                    "fat": nutrition_data['fat_g'],
+                    "fiber": nutrition_data['fiber_g'],
+                    "sugar": nutrition_data['sugar_g'],
+                    "sodium": nutrition_data['sodium_mg'],
+                    "healthiness_score": nutrition_data['healthiness_score'],
+                    "suggestions": nutrition_data['suggestions'],
+                    "nutrition_notes": nutrition_data['nutrition_notes'],
+                    "data_source": data_source,
+                    "components": nutrition_data.get('components')
+                }
+            }
         
-        print(f"🔍 Saved meal returned: {saved_meal}")
-        print(f"    Saved fiber_g: {saved_meal.get('fiber_g')}")
-        print(f"    Saved sugar_g: {saved_meal.get('sugar_g')}")
-        print(f"    Saved sodium_mg: {saved_meal.get('sodium_mg')}")
+        # Update daily nutrition
+        try:
+            await update_daily_nutrition(
+                supabase_service, 
+                user_id, 
+                meal_entry['meal_date'],
+                nutrition_data
+            )
+            print(f"✅ Daily nutrition updated")
+        except Exception as e:
+            print(f"⚠️ Failed to update daily nutrition: {e}")
+            # Continue even if daily nutrition update fails
         
         return {
             "success": True,
@@ -671,17 +750,29 @@ async def analyze_meal_flutter(meal_data: dict, tz_offset: int = Depends(get_tim
                 "nutrition_notes": nutrition_data.get('nutrition_notes', ''),
                 "data_source": data_source,
                 "confidence_score": nutrition_data.get('confidence_score', 0.8),
-                "components": nutrition_data.get('components'),  # ADD THIS for multi-food
+                "components": nutrition_data.get('components'),
                 "logged_at": saved_meal['logged_at']
             },
             "message": f"Meal analyzed using {data_source} and logged successfully"
         }
         
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions as-is
     except Exception as e:
-        print(f"❌ Error analyzing Flutter meal: {e}")
+        print(f"❌ Unexpected error in analyze_meal_flutter: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        
+        # Return a more informative error
+        error_message = str(e)
+        if "get_user_by_id" in error_message:
+            error_message = "Database connection error - please try again"
+        elif "OpenAI" in error_message:
+            error_message = "AI service temporarily unavailable - please try again"
+        else:
+            error_message = f"Analysis failed: {error_message}"
+        
+        raise HTTPException(status_code=500, detail=error_message)
 
 @router.get("/meals/history/{user_id}")
 async def get_meal_history_flutter(user_id: str, limit: int = 50, date: str = None, tz_offset: int = Depends(get_timezone_offset)):
