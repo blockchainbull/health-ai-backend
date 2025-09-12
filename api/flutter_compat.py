@@ -4,7 +4,7 @@ from typing import Dict, Any, Optional, List
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 import uuid
-from meals import update_daily_nutrition
+from api.meals import update_daily_nutrition
 
 from models.water_schemas import WaterEntryCreate
 from services.supabase_service import get_supabase_service

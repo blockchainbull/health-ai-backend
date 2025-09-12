@@ -161,55 +161,49 @@ async def meals_health_check():
     }
 
 async def update_daily_nutrition(supabase_service, user_id: str, meal_date: str, nutrition_data: dict):
-    """Update daily nutrition summary"""
+    """Update daily nutrition summary in daily_nutrition table"""
     try:
-        date_only = meal_date.split('T')[0]  # Get just the date part
+        date_only = meal_date.split('T')[0]
         
-        # Get user profile to determine calorie goal
-        user = await supabase_service.get_user(user_id)
-        
-        # Calculate calorie goal based on user's goal and TDEE
-        calorie_goal = calculate_calorie_goal(user)
-        
-        # Get existing daily nutrition or create new
+        # Get existing daily nutrition
         existing = await supabase_service.get_daily_nutrition(user_id, date_only)
         
         if existing:
-            # Update existing - include ALL nutrition fields
+            # Update existing entry
             updated_data = {
-                'calories_consumed': existing.get('calories_consumed', 0) + nutrition_data.get('calories', 0),
-                'protein_g': existing.get('protein_g', 0) + nutrition_data.get('protein_g', 0),
-                'carbs_g': existing.get('carbs_g', 0) + nutrition_data.get('carbs_g', 0),
-                'fat_g': existing.get('fat_g', 0) + nutrition_data.get('fat_g', 0),
-                'fiber_g': existing.get('fiber_g', 0) + nutrition_data.get('fiber_g', 0),
-                'sugar_g': existing.get('sugar_g', 0) + nutrition_data.get('sugar_g', 0),
-                'sodium_mg': existing.get('sodium_mg', 0) + nutrition_data.get('sodium_mg', 0),
-                'meals_logged': existing.get('meals_logged', 0) + 1,
-                'calorie_goal': calorie_goal  # Update goal in case user profile changed
+                'calories_consumed': int(float(existing.get('calories_consumed', 0)) + float(nutrition_data.get('calories', 0))),
+                'protein_g': round(float(existing.get('protein_g', 0)) + float(nutrition_data.get('protein_g', 0)), 1),
+                'carbs_g': round(float(existing.get('carbs_g', 0)) + float(nutrition_data.get('carbs_g', 0)), 1),
+                'fat_g': round(float(existing.get('fat_g', 0)) + float(nutrition_data.get('fat_g', 0)), 1),
+                'fiber_g': round(float(existing.get('fiber_g', 0)) + float(nutrition_data.get('fiber_g', 0)), 1),
+                'sugar_g': round(float(existing.get('sugar_g', 0)) + float(nutrition_data.get('sugar_g', 0)), 1),
+                'sodium_mg': int(float(existing.get('sodium_mg', 0)) + float(nutrition_data.get('sodium_mg', 0))),
+                'meals_logged': int(existing.get('meals_logged', 0)) + 1,
+                'updated_at': datetime.now().isoformat()
             }
             await supabase_service.update_daily_nutrition(existing['id'], updated_data)
         else:
-            # Create new - include ALL nutrition fields
+            # Create new entry
             new_data = {
                 'user_id': user_id,
                 'date': date_only,
-                'calories_consumed': nutrition_data.get('calories', 0),
-                'protein_g': nutrition_data.get('protein_g', 0),
-                'carbs_g': nutrition_data.get('carbs_g', 0),
-                'fat_g': nutrition_data.get('fat_g', 0),
-                'fiber_g': nutrition_data.get('fiber_g', 0),
-                'sugar_g': nutrition_data.get('sugar_g', 0),
-                'sodium_mg': nutrition_data.get('sodium_mg', 0),
+                'calories_consumed': int(float(nutrition_data.get('calories', 0))),
+                'protein_g': round(float(nutrition_data.get('protein_g', 0)), 1),
+                'carbs_g': round(float(nutrition_data.get('carbs_g', 0)), 1),
+                'fat_g': round(float(nutrition_data.get('fat_g', 0)), 1),
+                'fiber_g': round(float(nutrition_data.get('fiber_g', 0)), 1),
+                'sugar_g': round(float(nutrition_data.get('sugar_g', 0)), 1),
+                'sodium_mg': int(float(nutrition_data.get('sodium_mg', 0))),
                 'meals_logged': 1,
-                'calorie_goal': calorie_goal,
-                'water_goal_ml': 2000,
-                'step_goal': user.get('step_goal', 10000)
+                'calorie_goal': 2000  # Default or calculate based on user profile
             }
             await supabase_service.create_daily_nutrition(new_data)
             
     except Exception as e:
-        print(f"❌ Error updating daily nutrition: {e}")
-        pass
+        print(f"Error updating daily nutrition: {e}")
+        # Don't fail the entire meal logging if daily nutrition update fails
+        import traceback
+        traceback.print_exc()
 
 def calculate_calorie_goal(user_profile: dict) -> int:
     """Calculate daily calorie goal based on user's TDEE and weight goal"""
