@@ -2309,6 +2309,9 @@ async def get_user_chat_context(user_id: str):
         chat_service = get_chat_service()
         context = await chat_service.get_user_context(user_id)
         
+        # Debug what we're getting
+        print(f"📊 Today's progress from backend: {context.get('today_progress', {})}")
+        
         if not context:
             return {
                 "success": False,

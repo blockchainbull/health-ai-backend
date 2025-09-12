@@ -106,158 +106,196 @@ class HealthChatService:
         
         return activities
     
+    async def _get_weekly_summary(self, user_id: str) -> Dict[str, Any]:
+        """Get weekly summary statistics"""
+        try:
+            end_date = datetime.now().date()
+            start_date = end_date - timedelta(days=7)
+            
+            total_calories = 0
+            total_workouts = 0
+            total_sleep_hours = 0
+            sleep_count = 0
+            weight_entries = []
+            
+            for i in range(7):
+                date = start_date + timedelta(days=i)
+                activities = await self.get_today_activities(user_id, date)
+                
+                # Sum up meals
+                meals = activities.get('meals', [])
+                for meal in meals:
+                    total_calories += meal.get('total_calories', 0)
+                
+                # Count workouts
+                if activities.get('exercise'):
+                    total_workouts += len(activities['exercise'])
+                
+                # Sum sleep
+                if activities.get('sleep') and activities['sleep'].get('total_hours'):
+                    total_sleep_hours += activities['sleep']['total_hours']
+                    sleep_count += 1
+                
+                # Collect weight entries
+                if activities.get('weight') and activities['weight'].get('weight'):
+                    weight_entries.append(activities['weight'])
+            
+            avg_daily_calories = round(total_calories / 7) if total_calories > 0 else 0
+            avg_sleep_hours = round(total_sleep_hours / sleep_count, 1) if sleep_count > 0 else 0
+            weight_trend = self._calculate_weight_trend(weight_entries)
+            
+            return {
+                'avg_daily_calories': avg_daily_calories,
+                'total_workouts': total_workouts,
+                'avg_sleep_hours': avg_sleep_hours,
+                'weight_trend': weight_trend,
+            }
+            
+        except Exception as e:
+            print(f"Error getting weekly summary: {e}")
+            return {
+                'avg_daily_calories': 0,
+                'total_workouts': 0,
+                'avg_sleep_hours': 0,
+                'weight_trend': 'unknown',
+            }
+
+    async def _get_recent_activity_summary(self, user_id: str) -> Dict[str, Any]:
+        """Get recent activity summary for the past week"""
+        try:
+            end_date = datetime.now().date()
+            start_date = end_date - timedelta(days=7)
+            
+            meals_count = 0
+            workouts_count = 0
+            total_sleep_hours = 0
+            sleep_count = 0
+            
+            for i in range(7):
+                date = start_date + timedelta(days=i)
+                activities = await self.get_today_activities(user_id, date)
+                
+                # Count meals
+                meals_count += len(activities.get('meals', []))
+                
+                # Count workouts
+                workouts_count += len(activities.get('exercise', []))
+                
+                # Sum sleep hours
+                sleep = activities.get('sleep', {})
+                if sleep.get('total_hours'):
+                    total_sleep_hours += sleep['total_hours']
+                    sleep_count += 1
+            
+            avg_sleep = round(total_sleep_hours / sleep_count, 1) if sleep_count > 0 else 0
+            
+            return {
+                'meals_this_week': meals_count,
+                'workouts_this_week': workouts_count,
+                'avg_sleep_hours': avg_sleep,
+            }
+            
+        except Exception as e:
+            print(f"Error getting recent activity: {e}")
+            return {
+                'meals_this_week': 0,
+                'workouts_this_week': 0,
+                'avg_sleep_hours': 0,
+            }
+    
     async def get_user_context(self, user_id: str) -> Dict[str, Any]:
         """Get comprehensive user context for chat"""
         try:
-            print(f"🔍 Getting user context for: {user_id}")
-            
             # Get user profile
             user = await self.supabase_service.get_user_by_id(user_id)
             if not user:
-                print(f"❌ No user found for ID: {user_id}")
                 return {}
             
-            # Get today's date
+            # Get today's activities using your existing method
             today = datetime.now().date()
-            week_ago = today - timedelta(days=7)
+            activities = await self.get_today_activities(user_id, today)
             
-            # Get today's activities
-            today_activities = await self.get_today_activities(user_id, today)
+            # Get yesterday's activities for sleep
+            yesterday = today - timedelta(days=1)
+            yesterday_activities = await self.get_today_activities(user_id, yesterday)
             
-            # Get recent activity data (initialize all as empty lists)
-            recent_meals = []
-            recent_exercises = []
-            recent_sleep = []
-            recent_weight = []
-            recent_water = []
+            # Calculate meal totals
+            meals = activities.get('meals', [])
+            total_calories = sum(meal.get('total_calories', 0) for meal in meals)
+            total_protein = sum(meal.get('protein', 0) for meal in meals)
+            total_carbs = sum(meal.get('carbs', 0) for meal in meals)
+            total_fat = sum(meal.get('fat', 0) for meal in meals)
             
-            # Try to get weekly exercise data
-            try:
-                recent_exercises = await self.supabase_service.get_exercise_logs(
-                    user_id, start_date=str(week_ago), end_date=str(today)
-                )
-            except Exception as e:
-                print(f"⚠️ Error getting exercises: {e}")
-                recent_exercises = []
+            # Calculate exercise totals
+            exercises = activities.get('exercise', [])
+            total_exercise_minutes = sum(ex.get('duration_minutes', 0) for ex in exercises)
+            exercise_names = [ex.get('exercise_name', '') for ex in exercises]
             
-            # Try to get sleep history
-            try:
-                recent_sleep = await self.supabase_service.get_sleep_history(user_id, limit=7)
-            except Exception as e:
-                print(f"⚠️ Error getting sleep: {e}")
-                recent_sleep = []
+            # Get water, steps, weight data
+            water = activities.get('water', {})
+            steps = activities.get('steps', {})
+            weight = activities.get('weight', {})
+            sleep = yesterday_activities.get('sleep', {})  # Use yesterday's sleep
             
-            # Try to get weight history
-            try:
-                recent_weight = await self.supabase_service.get_weight_history(user_id, limit=5)
-            except Exception as e:
-                print(f"⚠️ Error getting weight: {e}")
-                recent_weight = []
+            # Get weekly summary
+            weekly_summary = await self._get_weekly_summary(user_id)
             
-            # Try to get water history with corrected table name
-            try:
-                water_response = await self.supabase_service.client.table('daily_water')\
-                    .select('*')\
-                    .eq('user_id', user_id)\
-                    .gte('date', str(week_ago))\
-                    .lte('date', str(today))\
-                    .execute()
-                recent_water = water_response.data if water_response.data else []
-            except Exception as e:
-                print(f"⚠️ Error getting water: {e}")
-                recent_water = []
+            # Get recent activity
+            recent_activity = await self._get_recent_activity_summary(user_id)
             
-            # Try to get meal history with corrected table name
-            try:
-                meals_response = await self.supabase_service.client.table('meal_entries')\
-                    .select('*')\
-                    .eq('user_id', user_id)\
-                    .gte('date', str(week_ago))\
-                    .lte('date', str(today))\
-                    .execute()
-                recent_meals = meals_response.data if meals_response.data else []
-            except Exception as e:
-                print(f"⚠️ Error getting meals: {e}")
-                recent_meals = []
-            
-            # Safe calculation of exercise minutes (handle None values)
-            def safe_get_duration(exercise):
-                duration = exercise.get('duration_minutes')
-                if duration is None:
-                    # Try alternative field names
-                    duration = exercise.get('duration', 0)
-                return duration if duration is not None else 0
-            
-            # Calculate progress metrics with safe None handling
             context = {
-                "user_profile": {
-                    "name": user.get('name', 'User'),
-                    "age": user.get('age'),
-                    "gender": user.get('gender'),
-                    "height": user.get('height'),
-                    "weight": user.get('weight'),
-                    "activity_level": user.get('activity_level'),
-                    "primary_goal": user.get('primary_goal'),
-                    "weight_goal": user.get('weight_goal'),
-                    "target_weight": user.get('target_weight'),
-                    "bmi": user.get('bmi'),
-                    "bmr": user.get('bmr'),
-                    "tdee": user.get('tdee'),
-                    "dietary_preferences": user.get('dietary_preferences', []),
-                    "medical_conditions": user.get('medical_conditions', []),
-                    "preferred_workouts": user.get('preferred_workouts', []),
-                    "fitness_level": user.get('fitness_level'),
-                    "sleep_hours": user.get('sleep_hours'),
-                    "bedtime": user.get('bedtime'),
-                    "wakeup_time": user.get('wakeup_time'),
-                    "water_intake_glasses": user.get('water_intake_glasses', 8),
-                    "step_goal": user.get('step_goal', 10000),
+                'user_profile': {
+                    'id': user_id,
+                    'name': user.get('name', ''),
+                    'age': user.get('age'),
+                    'weight': user.get('weight'),
+                    'height': user.get('height'),
+                    'primary_goal': user.get('primary_goal'),
+                    'weight_goal': user.get('weight_goal'),
+                    'target_weight': user.get('target_weight'),
+                    'activity_level': user.get('activity_level'),
+                    'tdee': user.get('tdee'),
+                    'gender': user.get('gender'),
+                    'preferred_workouts': user.get('preferred_workouts', []),
+                    'dietary_preferences': user.get('dietary_preferences', []),
                 },
-                "today_progress": {
-                    "date": str(today),
-                    "meals": today_activities.get('meals', []),
-                    "total_calories": sum(m.get('calories', 0) for m in today_activities.get('meals', [])),
-                    "total_protein": sum(m.get('protein_g', 0) or 0 for m in today_activities.get('meals', [])),
-                    "total_carbs": sum(m.get('carbs_g', 0) or 0 for m in today_activities.get('meals', [])),
-                    "total_fat": sum(m.get('fat_g', 0) or 0 for m in today_activities.get('meals', [])),
-                    "water_glasses": today_activities.get('water', {}).get('glasses', 0),
-                    "exercise_minutes": sum(safe_get_duration(e) for e in today_activities.get('exercise', [])),
-                    "exercises_done": [e.get('exercise_type', 'Unknown') for e in today_activities.get('exercise', [])],
-                    "steps": today_activities.get('steps', {}).get('count', 0) or today_activities.get('steps', {}).get('steps', 0),
-                    "sleep_hours": today_activities.get('sleep', {}).get('total_hours', 0) or today_activities.get('sleep', {}).get('hours', 0),
-                    "sleep_quality": today_activities.get('sleep', {}).get('quality', 'Not logged'),
-                    "supplements_taken": today_activities.get('supplements', {}),
-                    "weight_logged": today_activities.get('weight', {}).get('weight', None),
+                'today_progress': {
+                    'date': str(today),
+                    'meals_logged': len(meals),
+                    'total_calories': total_calories,
+                    'total_protein': total_protein,
+                    'total_carbs': total_carbs,
+                    'total_fat': total_fat,
+                    'water_glasses': water.get('glasses_consumed', 0),
+                    'water_ml': water.get('total_ml', 0),
+                    'steps': steps.get('steps', 0),
+                    'exercise_minutes': total_exercise_minutes,
+                    'exercises_done': exercise_names,
+                    'sleep_hours': sleep.get('total_hours', 0),
+                    'sleep_quality': sleep.get('quality', 'Not logged'),
+                    'weight_logged': weight.get('weight'),
                 },
-                "weekly_summary": {
-                    "avg_daily_calories": self._calculate_avg_calories(recent_meals),
-                    "total_workouts": len(recent_exercises),
-                    "avg_sleep_hours": self._calculate_avg_sleep(recent_sleep),
-                    "weight_trend": self._calculate_weight_trend(recent_weight),
-                    "hydration_consistency": self._calculate_hydration_consistency(recent_water),
+                'weekly_summary': weekly_summary,
+                'goals_progress': {
+                    'daily_calorie_goal': user.get('tdee', 2000),
+                    'water_goal_glasses': user.get('water_intake_glasses', 8),
+                    'step_goal': user.get('step_goal', 10000),
+                    'weight_progress': {
+                        'current': user.get('weight'),
+                        'target': user.get('target_weight'),
+                        'status': self._calculate_weight_status(user.get('weight'), user.get('target_weight'))
+                    }
                 },
-                "goals_progress": {
-                    "daily_calorie_goal": user.get('tdee', 2000) or 2000,
-                    "water_goal_glasses": user.get('water_intake_glasses', 8) or 8,
-                    "step_goal": user.get('step_goal', 10000) or 10000,
-                    "sleep_goal_hours": user.get('sleep_hours', 8) or 8,
-                },
-                "recent_activity": {
-                    "meals_this_week": len(recent_meals),
-                    "avg_daily_calories": self._calculate_avg_calories(recent_meals),
-                    "workouts_this_week": len(recent_exercises),
-                    "total_exercise_minutes": sum(safe_get_duration(e) for e in recent_exercises),
-                }
+                'recent_activity': recent_activity,
             }
             
-            print(f"✅ User context prepared with {len(recent_meals)} meals, {len(recent_exercises)} workouts")
             return context
             
         except Exception as e:
             print(f"❌ Error getting user context: {e}")
             import traceback
             traceback.print_exc()
-            return {}
+            return self._get_empty_context()
     
     def _calculate_hydration_consistency(self, water_logs: List[Dict]) -> float:
         """Calculate water intake consistency"""
@@ -291,20 +329,83 @@ class HealthChatService:
         total_hours = sum(entry.get('total_hours', entry.get('sleep_hours', 0)) for entry in sleep_entries)
         return round(total_hours / len(sleep_entries), 1)
     
-    def _calculate_weight_trend(self, weight_entries: List[Dict]) -> str:
-        if len(weight_entries) < 2:
-            return "insufficient_data"
+    def _calculate_weight_status(self, current: float, target: float) -> str:
+        """Calculate weight progress status"""
+        if not current or not target:
+            return 'no_data'
         
-        latest = weight_entries[0]['weight']
-        oldest = weight_entries[-1]['weight']
-        change = latest - oldest
-        
-        if abs(change) < 0.5:
-            return "stable"
-        elif change > 0:
-            return f"gaining_{abs(change):.1f}kg"
+        diff = abs(current - target)
+        if diff < 0.5:
+            return 'at_goal'
+        elif current > target:
+            return f'lose_{diff:.1f}kg'
         else:
-            return f"losing_{abs(change):.1f}kg"
+            return f'gain_{diff:.1f}kg'
+
+    def _calculate_weight_trend(self, weight_entries: List[Dict]) -> str:
+        """Calculate weight trend from entries"""
+        if len(weight_entries) < 2:
+            return 'insufficient_data'
+        
+        # Sort by date
+        sorted_entries = sorted(weight_entries, key=lambda x: x.get('date', ''))
+        
+        if len(sorted_entries) >= 2:
+            first_weight = sorted_entries[0].get('weight', 0)
+            last_weight = sorted_entries[-1].get('weight', 0)
+            change = last_weight - first_weight
+            
+            if abs(change) < 0.2:
+                return 'stable'
+            elif change > 0:
+                return f'gaining_{abs(change):.1f}kg'
+            else:
+                return f'losing_{abs(change):.1f}kg'
+        
+        return 'insufficient_data'
+        
+    def _get_empty_context(self) -> Dict[str, Any]:
+        """Return empty context structure when error occurs"""
+        return {
+            'user_profile': {},
+            'today_progress': {
+                'date': str(datetime.now().date()),
+                'meals_logged': 0,
+                'total_calories': 0,
+                'total_protein': 0,
+                'total_carbs': 0,
+                'total_fat': 0,
+                'water_glasses': 0,
+                'water_ml': 0,
+                'steps': 0,
+                'exercise_minutes': 0,
+                'exercises_done': [],
+                'sleep_hours': 0,
+                'sleep_quality': 'Not logged',
+                'weight_logged': None,
+            },
+            'weekly_summary': {
+                'avg_daily_calories': 0,
+                'total_workouts': 0,
+                'avg_sleep_hours': 0,
+                'weight_trend': 'unknown',
+            },
+            'goals_progress': {
+                'daily_calorie_goal': 2000,
+                'water_goal_glasses': 8,
+                'step_goal': 10000,
+                'weight_progress': {
+                    'current': None,
+                    'target': None,
+                    'status': 'no_data'
+                }
+            },
+            'recent_activity': {
+                'meals_this_week': 0,
+                'workouts_this_week': 0,
+                'avg_sleep_hours': 0,
+            }
+        }
     
     def _create_system_prompt(self, context: Dict[str, Any]) -> str:
         """Create enhanced system prompt with all activity data"""

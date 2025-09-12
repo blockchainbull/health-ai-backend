@@ -14,25 +14,35 @@ class OpenAIService:
         print("✅ OpenAI service initialized")
     
     async def analyze_meal(self, food_item: str, quantity: str, user_context: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze meal nutrition using GPT"""
+        """Analyze meal nutrition using GPT with better quantity handling"""
         try:
             print(f"🔍 Analyzing meal: {food_item} ({quantity})")
             
+            # Create specific guidance based on the food and quantity
+            quantity_guidance = self._get_quantity_guidance(food_item, quantity)
+            
             prompt = f"""
-            Analyze this meal and provide detailed nutrition information:
+            Analyze this meal and provide accurate nutrition information.
             
             Food: {food_item}
             Quantity: {quantity}
             
+            {quantity_guidance}
+            
+            CRITICAL INSTRUCTIONS FOR ACCURATE PORTIONS:
+            - "1 egg" = ~70 calories (not a serving of eggs which could be 2-3 eggs)
+            - "1 slice bread/toast" = ~70-80 calories (not a serving which could be 2 slices)
+            - "1 cup juice" = 8 oz = ~110 calories
+            - "1 medium apple" = ~95 calories
+            - "1 cup cooked rice" = ~205 calories
+            - "1 oz cheese" = ~110 calories
+            
             User context:
             - Weight: {user_context.get('weight', 70)} kg
             - Goal: {user_context.get('primary_goal', 'maintain weight')}
-            - Activity: {user_context.get('activity_level', 'moderate')}
             - TDEE: {user_context.get('tdee', 2000)} calories
             
-            Be specific about fiber, sugar, and sodium content. If the food naturally has low amounts, use realistic values (not zero).
-            
-            Return ONLY valid JSON with these exact fields:
+            Return ONLY valid JSON with accurate values based on the EXACT quantity specified:
             {{
                 "calories": integer,
                 "protein_g": float,
@@ -41,13 +51,11 @@ class OpenAIService:
                 "fiber_g": float,
                 "sugar_g": float,
                 "sodium_mg": integer,
-                "serving_description": "string",
+                "serving_description": "string describing exactly what was analyzed",
                 "nutrition_notes": "string",
                 "healthiness_score": integer (1-10),
                 "suggestions": "string"
             }}
-            
-            Important: Always include realistic values for fiber_g, sugar_g, and sodium_mg - never use null or undefined.
             """
             
             response = await self.client.chat.completions.create(
@@ -114,6 +122,31 @@ class OpenAIService:
             "healthiness_score": 6,
             "suggestions": "Consider tracking more detailed portion sizes for better accuracy"
         }
+    
+    def _get_quantity_guidance(self, food_item: str, quantity: str) -> str:
+        """Generate specific guidance for quantity interpretation"""
+        
+        guidance = "QUANTITY INTERPRETATION:\n"
+        
+        if 'egg' in quantity.lower():
+            num = re.search(r'(\d+)', quantity)
+            if num:
+                n = int(num.group(1))
+                guidance += f"- {n} eggs means exactly {n} eggs (~{n*70} calories total)\n"
+        
+        if 'slice' in quantity.lower():
+            num = re.search(r'(\d+)', quantity)
+            if num:
+                n = int(num.group(1))
+                guidance += f"- {n} slices means exactly {n} slices of bread (~{n*75} calories total)\n"
+        
+        if 'cup' in quantity.lower():
+            num = re.search(r'(\d+)', quantity)
+            if num:
+                n = float(num.group(1))
+                guidance += f"- {n} cup means {n*8} oz of liquid\n"
+        
+        return guidance
     
     async def health_chat(self, message: str, user_context: Dict[str, Any]) -> str:
         """Health coaching chat"""

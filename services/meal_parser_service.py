@@ -1,4 +1,3 @@
-# services/meal_parser_service.py
 import re
 from typing import List, Dict, Any, Tuple
 from services.meal_analysis_service import get_meal_analysis_service
@@ -15,122 +14,182 @@ class MealParserService:
             ' alongside ', ' accompanied by ', ' served with '
         ]
         
-        # Quantity indicators
-        self.quantity_words = [
-            'cup', 'cups', 'tbsp', 'tsp', 'oz', 'ounce', 'gram', 'g',
-            'piece', 'pieces', 'slice', 'slices', 'serving', 'plate',
-            'bowl', 'small', 'medium', 'large', 'handful'
-        ]
+        # Quantity indicators with their standard conversions
+        self.quantity_words = {
+            'cup': 'cup', 'cups': 'cups',
+            'tbsp': 'tbsp', 'tablespoon': 'tbsp', 'tablespoons': 'tbsp',
+            'tsp': 'tsp', 'teaspoon': 'tsp', 'teaspoons': 'tsp',
+            'oz': 'oz', 'ounce': 'oz', 'ounces': 'oz',
+            'gram': 'g', 'grams': 'g', 'g': 'g',
+            'piece': 'piece', 'pieces': 'pieces',
+            'slice': 'slice', 'slices': 'slices',
+            'serving': 'serving', 'servings': 'servings',
+            'plate': 'plate', 'plates': 'plates',
+            'bowl': 'bowl', 'bowls': 'bowls',
+            'small': 'small', 'medium': 'medium', 'large': 'large',
+            'handful': 'handful', 'handfuls': 'handfuls'
+        }
+        
+        # Common food items and their typical unit
+        self.food_units = {
+            'egg': 'eggs',
+            'toast': 'slices',
+            'bread': 'slices',
+            'apple': 'medium',
+            'banana': 'medium',
+            'orange': 'medium',
+            'sandwich': 'whole',
+            'burger': 'burger',
+            'pizza': 'slices',
+            'cookie': 'cookies',
+            'chicken breast': 'piece',
+            'salmon': 'oz',
+            'rice': 'cup cooked',
+            'pasta': 'cup cooked',
+            'milk': 'cup',
+            'juice': 'cup',
+            'coffee': 'cup',
+            'tea': 'cup'
+        }
     
-    async def parse_and_analyze_meal(
-        self,
-        meal_input: str,
-        default_quantity: str,
-        user_context: Dict[str, Any],
-        meal_type: str
-    ) -> Dict[str, Any]:
-        """Parse complex meal input and analyze each component"""
+    def _extract_quantity_from_text(self, text: str) -> Tuple[str, str]:
+        """Extract quantity from food text with intelligent parsing"""
         
-        print(f"🔍 Parsing meal input: {meal_input}")
+        text = text.strip()
         
-        # Step 1: Detect if this is a multi-food entry
-        food_items = self._parse_food_items(meal_input, default_quantity)
+        # STEP 1: Handle eggs specifically (most common issue)
+        if 'egg' in text.lower():
+            patterns = [
+                # "2 scrambled eggs", "3 fried eggs", etc.
+                (r'^(\d+)\s*(scrambled|fried|boiled|poached|hard[\s-]?boiled|soft[\s-]?boiled)?\s*eggs?', 
+                 lambda m: (f"{m.group(2) or 'cooked'} eggs", f"{m.group(1)} eggs")),
+                # "scrambled eggs (2)", "eggs, scrambled (3)"
+                (r'(scrambled|fried|boiled|poached)?\s*eggs?\s*\((\d+)\)',
+                 lambda m: (f"{m.group(1) or 'cooked'} eggs", f"{m.group(2)} eggs")),
+                # "2 eggs, scrambled"
+                (r'^(\d+)\s*eggs?,?\s*(scrambled|fried|boiled|poached)?',
+                 lambda m: (f"{m.group(2) or 'cooked'} eggs", f"{m.group(1)} eggs")),
+            ]
+            
+            for pattern, extractor in patterns:
+                match = re.search(pattern, text.lower())
+                if match:
+                    return extractor(match)
         
-        if len(food_items) == 1:
-            # Single food item - analyze normally
-            food, quantity = food_items[0]
-            return await self.meal_service.analyze_meal(
-                food_item=food,
-                quantity=quantity,
-                user_context=user_context
-            )
+        # STEP 2: Handle toast/bread specifically
+        if 'toast' in text.lower() or 'bread' in text.lower():
+            patterns = [
+                # "2 slices whole wheat toast", "3 pieces of bread"
+                (r'^(\d+)\s*(slices?|pieces?)\s+(?:of\s+)?(.*?)(toast|bread)',
+                 lambda m: (f"{m.group(3)} {m.group(4)}".strip(), f"{m.group(1)} slices")),
+                # "2 whole wheat toast"
+                (r'^(\d+)\s+(.*?)(toast|bread)',
+                 lambda m: (f"{m.group(2)} {m.group(3)}".strip(), f"{m.group(1)} slices")),
+                # "whole wheat toast (2 slices)"
+                (r'(.*?)(toast|bread)\s*\((\d+)\s*(slices?|pieces?)?\)',
+                 lambda m: (f"{m.group(1)} {m.group(2)}".strip(), f"{m.group(3)} slices")),
+            ]
+            
+            for pattern, extractor in patterns:
+                match = re.search(pattern, text.lower())
+                if match:
+                    return extractor(match)
         
-        # Step 2: Multi-food entry - analyze each component
-        print(f"📦 Detected {len(food_items)} food items")
+        # STEP 3: Handle items with explicit quantities in parentheses
+        paren_pattern = r'^(.*?)\s*\((\d+\.?\d*)\s*([^)]+)?\)'
+        match = re.match(paren_pattern, text)
+        if match:
+            food = match.group(1).strip()
+            quantity_num = match.group(2)
+            quantity_unit = match.group(3) or ''
+            
+            # Clean up the unit
+            if quantity_unit:
+                quantity_unit = quantity_unit.strip()
+                if quantity_unit in self.quantity_words:
+                    quantity_unit = self.quantity_words[quantity_unit]
+            
+            return food, f"{quantity_num} {quantity_unit}".strip()
         
-        components = []
-        total_nutrition = {
-            "calories": 0,
-            "protein_g": 0.0,
-            "carbs_g": 0.0,
-            "fat_g": 0.0,
-            "fiber_g": 0.0,
-            "sugar_g": 0.0,
-            "sodium_mg": 0
-        }
+        # STEP 4: Standard pattern matching for "X unit of food"
+        all_units = '|'.join(self.quantity_words.keys())
+        pattern = r'^(\d+\.?\d*)\s*(' + all_units + r')?\s+(?:of\s+)?(.+)$'
+        match = re.match(pattern, text.lower())
         
-        # Analyze each food item
-        for food, quantity in food_items:
-            try:
-                print(f"  • Analyzing: {food} ({quantity})")
-                
-                result = await self.meal_service.analyze_meal(
-                    food_item=food,
-                    quantity=quantity,
-                    user_context=user_context
-                )
-                
-                # Add to total
-                total_nutrition["calories"] += result.get("calories", 0)
-                total_nutrition["protein_g"] += result.get("protein_g", 0)
-                total_nutrition["carbs_g"] += result.get("carbs_g", 0)
-                total_nutrition["fat_g"] += result.get("fat_g", 0)
-                total_nutrition["fiber_g"] += result.get("fiber_g", 0)
-                total_nutrition["sugar_g"] += result.get("sugar_g", 0)
-                total_nutrition["sodium_mg"] += result.get("sodium_mg", 0)
-                
-                # Store component details
-                components.append({
-                    "food": food,
-                    "quantity": quantity,
-                    "calories": result.get("calories", 0),
-                    "protein_g": result.get("protein_g", 0),
-                    "source": result.get("data_source", "unknown")
-                })
-                
-            except Exception as e:
-                print(f"  ⚠️ Failed to analyze {food}: {e}")
-                continue
+        if match:
+            quantity_num = match.group(1)
+            quantity_unit = match.group(2) or ''
+            food = match.group(3)
+            
+            # Standardize the unit
+            if quantity_unit in self.quantity_words:
+                quantity_unit = self.quantity_words[quantity_unit]
+            
+            # If no unit specified, try to infer from food type
+            if not quantity_unit:
+                quantity_unit = self._infer_unit(food)
+            
+            return food, f"{quantity_num} {quantity_unit}".strip()
         
-        # Step 3: Calculate health score for combined meal
-        healthiness_score = self._calculate_combined_health_score(
-            total_nutrition, user_context
-        )
+        # STEP 5: Just a number at the beginning
+        pattern = r'^(\d+\.?\d*)\s+(.+)$'
+        match = re.match(pattern, text)
         
-        # Step 4: Generate suggestions for the complete meal
-        suggestions = self._generate_meal_suggestions(
-            total_nutrition, components, user_context
-        )
+        if match:
+            quantity_num = match.group(1)
+            food = match.group(2)
+            
+            # Infer unit based on food
+            unit = self._infer_unit(food)
+            return food, f"{quantity_num} {unit}"
         
-        # Return combined analysis
-        return {
-            **total_nutrition,
-            "serving_description": meal_input,
-            "components": components,
-            "component_count": len(components),
-            "healthiness_score": healthiness_score,
-            "suggestions": suggestions,
-            "nutrition_notes": f"Combined meal with {len(components)} items",
-            "data_source": "multi-food-parser",
-            "confidence_score": 0.9
-        }
+        # STEP 6: No quantity found - return as is
+        return text, ""
+    
+    def _infer_unit(self, food: str) -> str:
+        """Infer the appropriate unit for a food item"""
+        food_lower = food.lower()
+        
+        # Check known foods
+        for food_key, unit in self.food_units.items():
+            if food_key in food_lower:
+                return unit
+        
+        # Default based on food characteristics
+        if any(word in food_lower for word in ['juice', 'milk', 'coffee', 'tea', 'water', 'soda']):
+            return 'cup'
+        elif any(word in food_lower for word in ['apple', 'banana', 'orange', 'pear', 'peach']):
+            return 'medium'
+        elif any(word in food_lower for word in ['cookie', 'cracker', 'chip']):
+            return 'pieces'
+        elif any(word in food_lower for word in ['salad', 'soup', 'cereal', 'oatmeal']):
+            return 'bowl'
+        elif any(word in food_lower for word in ['sandwich', 'burger', 'wrap', 'burrito']):
+            return 'whole'
+        else:
+            return 'serving'
     
     def _parse_food_items(self, meal_input: str, default_quantity: str) -> List[Tuple[str, str]]:
         """Parse meal input into individual food items with quantities"""
         
-        meal_lower = meal_input.lower()
+        meal_input = meal_input.strip()
         items = []
         
-        # Check for common meal patterns
-        if self._is_standard_meal(meal_lower):
+        # First check if it's a known combo meal
+        if self._is_standard_meal(meal_input.lower()):
             return self._parse_standard_meal(meal_input, default_quantity)
         
-        # Try to split by separators
+        # Split by common separators
         parts = [meal_input]
         for separator in self.separators:
             new_parts = []
             for part in parts:
-                new_parts.extend(part.split(separator))
+                if separator in part.lower():
+                    # Split but preserve the context
+                    split_parts = part.split(separator)
+                    new_parts.extend(split_parts)
+                else:
+                    new_parts.append(part)
             parts = new_parts
         
         # Process each part
@@ -146,60 +205,96 @@ class MealParserService:
             if not quantity:
                 quantity = default_quantity if default_quantity else "1 serving"
             
-            items.append((food, quantity))
+            # Clean up the food name
+            food = food.strip()
+            if food:
+                items.append((food, quantity))
+                print(f"  📦 Parsed: '{food}' with quantity '{quantity}'")
         
-        # If no splitting occurred, treat as single item
+        # If no items were parsed, treat as single item
         if len(items) == 0:
             items.append((meal_input, default_quantity or "1 serving"))
         
         return items
     
-    def _extract_quantity_from_text(self, text: str) -> Tuple[str, str]:
-        """Extract quantity from food text"""
-        
-        # Pattern: number + unit at the beginning
-        pattern = r'^(\d+\.?\d*)\s*(' + '|'.join(self.quantity_words) + r')\s+(.+)$'
-        match = re.match(pattern, text.lower())
-        
-        if match:
-            quantity = f"{match.group(1)} {match.group(2)}"
-            food = match.group(3)
-            return food, quantity
-        
-        # Pattern: number at the beginning (e.g., "2 apples")
-        pattern = r'^(\d+\.?\d*)\s+(.+)$'
-        match = re.match(pattern, text)
-        
-        if match:
-            quantity = match.group(1)
-            food = match.group(2)
-            return food, quantity
-        
-        # No quantity found
-        return text, ""
-    
     def _is_standard_meal(self, meal_text: str) -> bool:
         """Check if this is a standard meal combo"""
-        
         standard_meals = [
             "burger and fries",
             "fish and chips",
-            "rice and beans",
-            "pasta and salad",
-            "sandwich and chips",
             "eggs and toast",
+            "eggs and bacon",
             "chicken and rice",
-            "steak and potatoes"
+            "steak and potatoes",
+            "pasta and salad",
+            "sandwich and chips"
         ]
-        
         return any(meal in meal_text for meal in standard_meals)
     
     def _parse_standard_meal(self, meal_input: str, default_quantity: str) -> List[Tuple[str, str]]:
-        """Parse standard meal combinations"""
+        """Parse standard meal combinations with better quantity handling"""
         
         meal_lower = meal_input.lower()
         
-        # Define standard meal compositions
+        # Special handling for eggs and toast (most common breakfast)
+        if 'egg' in meal_lower and 'toast' in meal_lower:
+            items = []
+            
+            # Extract egg info
+            egg_patterns = [
+                r'(\d+)\s*(scrambled|fried|boiled|poached)?\s*eggs?',
+                r'(scrambled|fried|boiled|poached)?\s*eggs?\s*\((\d+)\)',
+            ]
+            
+            for pattern in egg_patterns:
+                match = re.search(pattern, meal_lower)
+                if match:
+                    if match.lastindex == 2:  # First pattern
+                        num = match.group(1)
+                        style = match.group(2) or 'scrambled'
+                    else:  # Second pattern
+                        style = match.group(1) or 'scrambled'
+                        num = match.group(2)
+                    items.append((f"{style} eggs", f"{num} eggs"))
+                    break
+            
+            # Extract toast info
+            toast_patterns = [
+                r'(\d+)\s*(slices?)?\s*(whole wheat|wheat|white|multigrain)?\s*toast',
+                r'(whole wheat|wheat|white|multigrain)?\s*toast\s*\((\d+)\s*(slices?)?\)',
+            ]
+            
+            for pattern in toast_patterns:
+                match = re.search(pattern, meal_lower)
+                if match:
+                    if '(' in pattern:  # Second pattern
+                        bread_type = match.group(1) or 'wheat'
+                        num = match.group(2)
+                    else:  # First pattern
+                        num = match.group(1)
+                        bread_type = match.group(3) or 'wheat'
+                    items.append((f"{bread_type} toast", f"{num} slices"))
+                    break
+            
+            # Check for additional items like juice, bacon, etc.
+            if 'juice' in meal_lower:
+                juice_match = re.search(r'(\d+)\s*(cup|glass)?\s*(orange|apple|grape)?\s*juice', meal_lower)
+                if juice_match:
+                    amount = juice_match.group(1)
+                    unit = juice_match.group(2) or 'cup'
+                    juice_type = juice_match.group(3) or 'orange'
+                    items.append((f"{juice_type} juice", f"{amount} {unit}"))
+            
+            if 'bacon' in meal_lower:
+                bacon_match = re.search(r'(\d+)\s*(strips?|pieces?)?\s*(?:of\s+)?bacon', meal_lower)
+                if bacon_match:
+                    num = bacon_match.group(1)
+                    items.append(("bacon", f"{num} strips"))
+            
+            if items:
+                return items
+        
+        # Default patterns for other standard meals
         meal_patterns = {
             "burger and fries": [
                 ("burger", "1 medium"),
@@ -209,11 +304,11 @@ class MealParserService:
                 ("fried fish fillet", "1 piece"),
                 ("french fries", "1 serving")
             ],
-            "eggs and toast": [
-                ("scrambled eggs", "2 eggs"),
-                ("toast", "2 slices")
+            "chicken and rice": [
+                ("grilled chicken breast", "4 oz"),
+                ("white rice", "1 cup cooked")
             ],
-            # Add more patterns as needed
+            # Add more as needed
         }
         
         for pattern, components in meal_patterns.items():
@@ -221,78 +316,8 @@ class MealParserService:
                 return components
         
         return [(meal_input, default_quantity or "1 serving")]
-    
-    def _calculate_combined_health_score(
-        self,
-        nutrition: Dict[str, Any],
-        user_context: Dict[str, Any]
-    ) -> int:
-        """Calculate health score for combined meal"""
-        
-        score = 7  # Base score
-        
-        # Adjust based on calories vs TDEE
-        tdee = user_context.get('tdee', 2000)
-        meal_percent = (nutrition['calories'] / tdee) * 100
-        
-        if 20 <= meal_percent <= 35:  # Good meal size
-            score += 1
-        elif meal_percent > 50:  # Too large
-            score -= 2
-        elif meal_percent < 15:  # Too small
-            score -= 1
-        
-        # Check macronutrient balance
-        if nutrition['calories'] > 0:
-            protein_percent = (nutrition['protein_g'] * 4 / nutrition['calories']) * 100
-            if protein_percent >= 20:
-                score += 1
-        
-        # Fiber content
-        if nutrition['fiber_g'] >= 5:
-            score += 1
-        
-        # Sodium check
-        if nutrition['sodium_mg'] > 1000:
-            score -= 1
-        
-        return max(1, min(10, score))
-    
-    def _generate_meal_suggestions(
-        self,
-        nutrition: Dict[str, Any],
-        components: List[Dict],
-        user_context: Dict[str, Any]
-    ) -> str:
-        """Generate suggestions for the complete meal"""
-        
-        suggestions = []
-        
-        # Check if meal is balanced
-        if nutrition['protein_g'] < 20:
-            suggestions.append("Consider adding more protein")
-        
-        if nutrition['fiber_g'] < 5:
-            suggestions.append("Add vegetables or whole grains for fiber")
-        
-        # Check portion size
-        tdee = user_context.get('tdee', 2000)
-        if nutrition['calories'] > tdee * 0.5:
-            suggestions.append("This is a large meal - consider splitting it")
-        
-        # Goal-specific advice
-        goal = user_context.get('primary_goal', '')
-        if 'lose' in goal.lower() and nutrition['calories'] > 600:
-            suggestions.append("For weight loss, aim for smaller portions")
-        elif 'gain' in goal.lower() and nutrition['protein_g'] < 30:
-            suggestions.append("Add more protein for muscle gain")
-        
-        if not suggestions:
-            suggestions.append("Well-balanced meal choice!")
-        
-        return ". ".join(suggestions)
 
-# Singleton
+# Singleton pattern
 _parser_service = None
 
 def get_meal_parser_service():
