@@ -27,10 +27,10 @@ class HealthChatService:
         
         try:
             # Get today's meals
-            meals_response = await self.supabase_service.client.table('meal_entries')\
+            meals_response = self.supabase_service.client.table('meal_entries')\
                 .select('*')\
                 .eq('user_id', user_id)\
-                .eq('date', str(target_date))\
+                .eq('meal_date', str(target_date))\
                 .execute()
             activities['meals'] = meals_response.data if meals_response.data else []
         except Exception as e:
@@ -39,7 +39,7 @@ class HealthChatService:
         
         try:
             # Get today's water intake
-            water_response = await self.supabase_service.client.table('daily_water')\
+            water_response = self.supabase_service.client.table('daily_water')\
                 .select('*')\
                 .eq('user_id', user_id)\
                 .eq('date', str(target_date))\
@@ -51,7 +51,7 @@ class HealthChatService:
         
         try:
             # Get today's exercise
-            exercise_response = await self.supabase_service.client.table('exercise_logs')\
+            exercise_response = self.supabase_service.client.table('exercise_logs')\
                 .select('*')\
                 .eq('user_id', user_id)\
                 .eq('exercise_date', str(target_date))\
@@ -63,7 +63,7 @@ class HealthChatService:
         
         try:
             # Get today's sleep
-            sleep_response = await self.supabase_service.client.table('sleep_entries')\
+            sleep_response = self.supabase_service.client.table('sleep_entries')\
                 .select('*')\
                 .eq('user_id', user_id)\
                 .eq('date', str(target_date))\
@@ -75,14 +75,14 @@ class HealthChatService:
         
         try:
             # Get today's supplements
-            activities['supplements'] = await self.supabase_service.get_supplement_status_by_date(user_id, target_date)
+            activities['supplements'] = self.supabase_service.get_supplement_status_by_date(user_id, target_date)
         except Exception as e:
             print(f"⚠️ Error fetching supplements: {e}")
             activities['supplements'] = {}
         
         try:
             # Get today's weight
-            weight_response = await self.supabase_service.client.table('weight_entries')\
+            weight_response = self.supabase_service.client.table('weight_entries')\
                 .select('*')\
                 .eq('user_id', user_id)\
                 .eq('date', str(target_date))\
@@ -94,7 +94,7 @@ class HealthChatService:
         
         try:
             # Get today's steps
-            steps_response = await self.supabase_service.client.table('daily_steps')\
+            steps_response = self.supabase_service.client.table('daily_steps')\
                 .select('*')\
                 .eq('user_id', user_id)\
                 .eq('date', str(target_date))\
