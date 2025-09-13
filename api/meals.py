@@ -163,6 +163,7 @@ async def meals_health_check():
 async def update_daily_nutrition(supabase_service, user_id: str, meal_date: str, nutrition_data: dict):
     """Update daily nutrition summary in daily_nutrition table"""
     try:
+        # Extract just the date part (YYYY-MM-DD)
         date_only = meal_date.split('T')[0]
         
         # Get existing daily nutrition
@@ -182,6 +183,7 @@ async def update_daily_nutrition(supabase_service, user_id: str, meal_date: str,
                 'updated_at': datetime.now().isoformat()
             }
             await supabase_service.update_daily_nutrition(existing['id'], updated_data)
+            print(f"✅ Updated daily nutrition for {user_id} on {date_only}")
         else:
             # Create new entry
             new_data = {
@@ -195,12 +197,15 @@ async def update_daily_nutrition(supabase_service, user_id: str, meal_date: str,
                 'sugar_g': round(float(nutrition_data.get('sugar_g', 0)), 1),
                 'sodium_mg': int(float(nutrition_data.get('sodium_mg', 0))),
                 'meals_logged': 1,
-                'calorie_goal': 2000  # Default or calculate based on user profile
+                'calorie_goal': 2000,  # Default or calculate based on user profile
+                'created_at': datetime.now().isoformat(),
+                'updated_at': datetime.now().isoformat()
             }
             await supabase_service.create_daily_nutrition(new_data)
+            print(f"✅ Created daily nutrition for {user_id} on {date_only}")
             
     except Exception as e:
-        print(f"Error updating daily nutrition: {e}")
+        print(f"❌ Error updating daily nutrition: {e}")
         # Don't fail the entire meal logging if daily nutrition update fails
         import traceback
         traceback.print_exc()
