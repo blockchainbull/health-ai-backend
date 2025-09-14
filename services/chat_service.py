@@ -228,7 +228,10 @@ class HealthChatService:
             
             # Calculate exercise totals
             exercises = activities.get('exercise', [])
-            total_exercise_minutes = sum(ex.get('duration_minutes', 0) for ex in exercises)
+            total_exercise_minutes = sum(
+                ex.get('duration_minutes', 0) if ex.get('duration_minutes') is not None else 0 
+                for ex in exercises
+            )
             exercise_names = [ex.get('exercise_name', '') for ex in exercises]
             
             # Get water, steps, weight data
