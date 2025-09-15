@@ -52,6 +52,17 @@ def validate_and_sync_goals(weight_goal: str) -> str:
     
     return goal_mapping[weight_goal]
 
+def estimate_duration(exercise_type, sets, reps, weight_kg=None):
+    """Estimate exercise duration based on type and volume"""
+    if exercise_type == 'strength':
+        # Estimate: 3 seconds per rep + 60-90 seconds rest between sets
+        return int((sets * reps * 3 + (sets - 1) * 60) / 60)
+    elif exercise_type == 'cardio':
+        return 30  # Default 30 minutes for cardio
+    else:
+        return 15  # Default 15 minutes for other types
+
+
 router = APIRouter()
 
 # Flutter-compatible models
@@ -1680,6 +1691,12 @@ async def log_exercise(exercise_data: dict, tz_offset: int = Depends(get_timezon
                 exercise_log_data['reps'] = int(exercise_data.get('reps'))
             if exercise_data.get('weight_kg') is not None and exercise_data.get('weight_kg') > 0:
                 exercise_log_data['weight_kg'] = float(exercise_data.get('weight_kg'))
+            if not exercise_data.get('duration_minutes'):
+                exercise_data['duration_minutes'] = estimate_duration(
+                    exercise_data.get('exercise_type'),
+                    exercise_data.get('sets', 3),
+                    exercise_data.get('reps', 10)
+                )
             if exercise_data.get('calories_burned') is not None:
                 exercise_log_data['calories_burned'] = float(exercise_data.get('calories_burned'))
         

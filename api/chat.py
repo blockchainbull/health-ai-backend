@@ -50,18 +50,37 @@ async def get_user_chat_context(user_id: str):
         end_date = f"{today_str}T23:59:59"
         
         exercises_response = supabase_service.client.table('exercise_logs')\
-            .select('*')\
-            .eq('user_id', user_id)\
-            .gte('exercise_date', start_date)\
-            .lte('exercise_date', end_date)\
-            .execute()
+        .select('*')\
+        .eq('user_id', user_id)\
+        .gte('exercise_date', start_date)\
+        .lte('exercise_date', end_date)\
+        .execute()
         exercises = exercises_response.data if exercises_response.data else []
 
-        exercise_minutes = sum(
-            ex.get('duration_minutes', 0) 
-            for ex in exercises 
-            if ex.get('duration_minutes') is not None
-        )
+        exercise_minutes = 0
+        exercise_calories = 0.0
+        
+        for ex in exercises:
+            # Use duration_minutes if available
+            if ex.get('duration_minutes'):
+                exercise_minutes += int(ex['duration_minutes'])
+            # Otherwise estimate from sets and reps
+            elif ex.get('sets') and ex.get('reps'):
+                # Rough estimate: 3 seconds per rep + 60 seconds rest between sets
+                estimated_mins = int((ex['sets'] * ex['reps'] * 3 + (ex['sets'] - 1) * 60) / 60)
+                exercise_minutes += estimated_mins
+                # Optionally update the record
+                try:
+                    supabase_service.client.table('exercise_logs')\
+                        .update({'duration_minutes': estimated_mins})\
+                        .eq('id', ex['id'])\
+                        .execute()
+                except:
+                    pass
+            
+            # Sum calories
+            if ex.get('calories_burned'):
+                exercise_calories += float(ex['calories_burned'])
         
         # Get today's weight entry
         weight_response = supabase_service.client.table('weight_entries')\
@@ -175,22 +194,21 @@ async def get_user_chat_context(user_id: str):
                 'water_glasses': water_response.get('glasses_consumed', 0) if water_response else 0,
                 'water_ml': water_response.get('total_ml', 0) if water_response else 0,
                 'steps': steps_data.get('steps', 0) if steps_data else 0,
-                'exercise_minutes': exercise_minutes,
+                'exercise_minutes': int(exercise_minutes),
                 'exercises_done': [
                     {
                         'name': e.get('exercise_name'),
                         'type': e.get('exercise_type'),
-                        'calories': float(e.get('calories_burned', 0))
+                        'calories': int(float(e.get('calories_burned', 0)))
                     } for e in exercises
                 ],
-                'exercise_calories': round(exercise_calories, 1),
-                # FIX: Use total_hours instead of hours_slept
+                'exercise_calories': int(round(exercise_calories)),
                 'sleep_hours': sleep_data.get('total_hours', 0) if sleep_data else 0,
                 'sleep_quality': sleep_data.get('quality_score', 'Not logged') if sleep_data else 'Not logged',
                 'weight_logged': weight_data.get('weight') if weight_data else None,
             },
             'weekly_summary': {
-                'avg_daily_calories': avg_daily_calories,  # FIX: Use calculated value
+                'avg_daily_calories': avg_daily_calories,
                 'total_workouts': len(weekly_exercises),
                 'total_exercise_minutes': sum(int(e.get('duration_minutes', 0)) for e in weekly_exercises if e.get('duration_minutes')),
                 'avg_sleep_hours': round(avg_sleep_hours, 1),
