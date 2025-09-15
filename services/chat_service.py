@@ -1,5 +1,5 @@
 # services/chat_service.py
-import asyncio
+import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta, date
 from services.openai_service import get_openai_service
@@ -22,28 +22,87 @@ class HealthChatService:
             self.supabase_service = None
     
     async def get_today_activities(self, user_id: str, target_date: date) -> dict:
-        """Fetch all activities for a specific date - OPTIMIZED"""
-        
-        # Run all queries concurrently
-        results = await asyncio.gather(
-            self._get_meals(user_id, target_date),
-            self._get_water(user_id, target_date),
-            self._get_exercise(user_id, target_date),
-            self._get_sleep(user_id, target_date),
-            self.supabase_service.get_supplement_status_by_date(user_id, target_date),
-            self._get_weight(user_id, target_date),
-            self._get_steps(user_id, target_date),
-            return_exceptions=True
-        )
-        
+        """Fetch all activities for a specific date"""
         activities = {}
-        activities['meals'] = results[0] if not isinstance(results[0], Exception) else []
-        activities['water'] = results[1] if not isinstance(results[1], Exception) else {}
-        activities['exercise'] = results[2] if not isinstance(results[2], Exception) else []
-        activities['sleep'] = results[3] if not isinstance(results[3], Exception) else {}
-        activities['supplements'] = results[4] if not isinstance(results[4], Exception) else {}
-        activities['weight'] = results[5] if not isinstance(results[5], Exception) else {}
-        activities['steps'] = results[6] if not isinstance(results[6], Exception) else {}
+        
+        try:
+            # Get today's meals
+            meals_response = self.supabase_service.client.table('meal_entries')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('meal_date', str(target_date))\
+                .execute()
+            activities['meals'] = meals_response.data if meals_response.data else []
+        except Exception as e:
+            print(f"⚠️ Error fetching meals: {e}")
+            activities['meals'] = []
+        
+        try:
+            # Get today's water intake
+            water_response = self.supabase_service.client.table('daily_water')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('date', str(target_date))\
+                .execute()
+            activities['water'] = water_response.data[0] if water_response.data else {}
+        except Exception as e:
+            print(f"⚠️ Error fetching water: {e}")
+            activities['water'] = {}
+        
+        try:
+            # Get today's exercise
+            exercise_response = self.supabase_service.client.table('exercise_logs')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('exercise_date', str(target_date))\
+                .execute()
+            activities['exercise'] = exercise_response.data if exercise_response.data else []
+        except Exception as e:
+            print(f"⚠️ Error fetching exercise: {e}")
+            activities['exercise'] = []
+        
+        try:
+            # Get today's sleep
+            sleep_response = self.supabase_service.client.table('sleep_entries')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('date', str(target_date))\
+                .execute()
+            activities['sleep'] = sleep_response.data[0] if sleep_response.data else {}
+        except Exception as e:
+            print(f"⚠️ Error fetching sleep: {e}")
+            activities['sleep'] = {}
+        
+        try:
+            # Get today's supplements
+            activities['supplements'] = await self.supabase_service.get_supplement_status_by_date(user_id, target_date)
+        except Exception as e:
+            print(f"⚠️ Error fetching supplements: {e}")
+            activities['supplements'] = {}
+        
+        try:
+            # Get today's weight
+            weight_response = self.supabase_service.client.table('weight_entries')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('date', str(target_date))\
+                .execute()
+            activities['weight'] = weight_response.data[0] if weight_response.data else {}
+        except Exception as e:
+            print(f"⚠️ Error fetching weight: {e}")
+            activities['weight'] = {}
+        
+        try:
+            # Get today's steps
+            steps_response = self.supabase_service.client.table('daily_steps')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('date', str(target_date))\
+                .execute()
+            activities['steps'] = steps_response.data[0] if steps_response.data else {}
+        except Exception as e:
+            print(f"⚠️ Error fetching steps: {e}")
+            activities['steps'] = {}
         
         return activities
     
@@ -240,78 +299,6 @@ class HealthChatService:
             import traceback
             traceback.print_exc()
             return self._get_empty_context()
-        
-    async def _get_meals(self, user_id: str, target_date: date):
-        try:
-            response = await self.supabase_service.client.table('meal_entries')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('meal_date', str(target_date))\
-                .execute()
-            return response.data if response.data else []
-        except Exception as e:
-            print(f"⚠️ Error fetching meals: {e}")
-            return []
-
-    async def _get_water(self, user_id: str, target_date: date):
-        try:
-            response = await self.supabase_service.client.table('daily_water')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('date', str(target_date))\
-                .execute()
-            return response.data[0] if response.data else {}
-        except Exception as e:
-            print(f"⚠️ Error fetching water: {e}")
-            return {}
-
-    async def _get_exercise(self, user_id: str, target_date: date):
-        try:
-            response = await self.supabase_service.client.table('exercise_logs')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('exercise_date', str(target_date))\
-                .execute()
-            return response.data if response.data else []
-        except Exception as e:
-            print(f"⚠️ Error fetching exercise: {e}")
-            return []
-
-    async def _get_sleep(self, user_id: str, target_date: date):
-        try:
-            response = await self.supabase_service.client.table('sleep_entries')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('date', str(target_date))\
-                .execute()
-            return response.data[0] if response.data else {}
-        except Exception as e:
-            print(f"⚠️ Error fetching sleep: {e}")
-            return {}
-
-    async def _get_weight(self, user_id: str, target_date: date):
-        try:
-            response = await self.supabase_service.client.table('weight_entries')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('date', str(target_date))\
-                .execute()
-            return response.data[0] if response.data else {}
-        except Exception as e:
-            print(f"⚠️ Error fetching weight: {e}")
-            return {}
-
-    async def _get_steps(self, user_id: str, target_date: date):
-        try:
-            response = await self.supabase_service.client.table('daily_steps')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('date', str(target_date))\
-                .execute()
-            return response.data[0] if response.data else {}
-        except Exception as e:
-            print(f"⚠️ Error fetching steps: {e}")
-            return {}
     
     def _calculate_hydration_consistency(self, water_logs: List[Dict]) -> float:
         """Calculate water intake consistency"""
