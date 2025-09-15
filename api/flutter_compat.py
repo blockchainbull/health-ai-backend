@@ -2369,6 +2369,7 @@ async def health_chat(request: dict, tz_offset: int = Depends(get_timezone_offse
     start_time = time.time()
     
     try:
+        print(f"💬 Chat request received at {time.time()}")
         chat_service = get_chat_service()
         user_id = request.get('user_id')
         message = request.get('message')
@@ -2376,12 +2377,12 @@ async def health_chat(request: dict, tz_offset: int = Depends(get_timezone_offse
         if not user_id or not message:
             raise HTTPException(status_code=400, detail="user_id and message are required")
         
-        print(f"💬 Chat request from user: {user_id}")
+        print(f"💬 Chat request from user: {user_id}, message: {message[:50]}...")
+        print(f"⏱️ Time before generate_chat_response: {time.time() - start_time:.2f}s")
         
         response = await chat_service.generate_chat_response(user_id, message)
-
-        elapsed = time.time() - start_time
-        print(f"⏱️ Chat response generated in {elapsed:.2f} seconds")
+        
+        print(f"⏱️ Total time: {time.time() - start_time:.2f}s")
         
         return {
             "success": True,
@@ -2389,11 +2390,13 @@ async def health_chat(request: dict, tz_offset: int = Depends(get_timezone_offse
             "timestamp": get_user_now(tz_offset).isoformat()
         }
     except Exception as e:
-        print(f"❌ Error in health chat: {e}")
+        print(f"❌ Error in health chat after {time.time() - start_time:.2f}s: {e}")
+        import traceback
+        traceback.print_exc()
         return {
             "success": False,
             "response": "I'm having trouble connecting. Please check your connection and try again.",
-            "error": str(e) 
+            "error": str(e)
         }
 
 @router.get("/chat/context/{user_id}")
