@@ -71,7 +71,7 @@ async def get_user_chat_context(user_id: str):
             .execute()
         weight_data = weight_response.data[0] if weight_response.data else None
         
-        # Get last night's sleep
+        # Get last night's sleep (FIX: use total_hours instead of hours_slept)
         sleep_response = supabase_service.client.table('sleep_entries')\
             .select('*')\
             .eq('user_id', user_id)\
@@ -89,46 +89,52 @@ async def get_user_chat_context(user_id: str):
         exercise_minutes = sum(int(e.get('duration_minutes', 0)) for e in exercises if e.get('duration_minutes'))
         exercise_calories = sum(float(e.get('calories_burned', 0)) for e in exercises)
         
-        # Get weekly summary (last 7 days)
-        week_ago = (today - timedelta(days=7)).isoformat()
+        # Get weekly summary (last 7 days) - FIX: week_ago is a date object
+        week_ago = today - timedelta(days=7)
+        week_ago_str = week_ago.isoformat()
         
         # Weekly meals
-        weekly_meals = supabase_service.client.table('meal_entries')\
+        weekly_meals_response = supabase_service.client.table('meal_entries')\
             .select('*')\
             .eq('user_id', user_id)\
-            .gte('meal_date', week_ago.isoformat())\
-            .lte('meal_date', today.isoformat())\
+            .gte('meal_date', week_ago_str)\
+            .lte('meal_date', today_str)\
             .execute()
+        weekly_meals = weekly_meals_response.data if weekly_meals_response.data else []
         
         # Weekly exercises
         weekly_exercises_response = supabase_service.client.table('exercise_logs')\
             .select('*')\
             .eq('user_id', user_id)\
-            .gte('exercise_date', f"{week_ago}T00:00:00")\
+            .gte('exercise_date', f"{week_ago_str}T00:00:00")\
             .lte('exercise_date', f"{today_str}T23:59:59")\
             .execute()
         weekly_exercises = weekly_exercises_response.data if weekly_exercises_response.data else []
         
         # Weekly sleep
-        weekly_sleep = supabase_service.client.table('sleep_entries')\
+        weekly_sleep_response = supabase_service.client.table('sleep_entries')\
             .select('*')\
             .eq('user_id', user_id)\
-            .gte('date', week_ago.isoformat())\
-            .lte('date', today.isoformat())\
+            .gte('date', week_ago_str)\
+            .lte('date', today_str)\
             .execute()
+        weekly_sleep = weekly_sleep_response.data if weekly_sleep_response.data else []
         
         # Calculate weekly averages
         days_with_data = len(set(m.get('meal_date', '')[:10] for m in weekly_meals)) or 1
-        meals_data = weekly_meals.data if hasattr(weekly_meals, 'data') else weekly_meals
         
-        sleep_data = weekly_sleep.data if hasattr(weekly_sleep, 'data') else weekly_sleep
-        avg_sleep_hours = sum(s.get('total_hours', 0) for s in sleep_data) / len(sleep_data) if sleep_data else 0
+        # FIX: Calculate average calories properly
+        total_weekly_calories = sum(float(m.get('calories', 0)) for m in weekly_meals)
+        avg_daily_calories = round(total_weekly_calories / days_with_data, 0) if days_with_data > 0 else 0
+        
+        # FIX: Use total_hours instead of hours_slept
+        avg_sleep_hours = sum(s.get('total_hours', 0) for s in weekly_sleep) / len(weekly_sleep) if weekly_sleep else 0
         
         # Get weight trend
         weight_history_response = supabase_service.client.table('weight_entries')\
             .select('weight')\
             .eq('user_id', user_id)\
-            .gte('date', week_ago)\
+            .gte('date', week_ago_str)\
             .order('date', desc=False)\
             .execute()
         weight_history = weight_history_response.data if weight_history_response.data else []
@@ -178,12 +184,13 @@ async def get_user_chat_context(user_id: str):
                     } for e in exercises
                 ],
                 'exercise_calories': round(exercise_calories, 1),
-                'sleep_hours': sleep_data.get('hours_slept', 0) if sleep_data else 0,
-                'sleep_quality': sleep_data.get('quality', 'Not logged') if sleep_data else 'Not logged',
+                # FIX: Use total_hours instead of hours_slept
+                'sleep_hours': sleep_data.get('total_hours', 0) if sleep_data else 0,
+                'sleep_quality': sleep_data.get('quality_score', 'Not logged') if sleep_data else 'Not logged',
                 'weight_logged': weight_data.get('weight') if weight_data else None,
             },
             'weekly_summary': {
-                'avg_daily_calories': round(meals_data, 0),
+                'avg_daily_calories': avg_daily_calories,  # FIX: Use calculated value
                 'total_workouts': len(weekly_exercises),
                 'total_exercise_minutes': sum(int(e.get('duration_minutes', 0)) for e in weekly_exercises if e.get('duration_minutes')),
                 'avg_sleep_hours': round(avg_sleep_hours, 1),
