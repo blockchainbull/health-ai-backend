@@ -5,9 +5,10 @@ from dotenv import load_dotenv
 
 from fastapi import FastAPI, Request, Response
 from utils.keep_alive import start_keep_alive
-from api import users, meals, flutter_compat
+from api import users, flutter_compat
 from services.supabase_service import init_supabase_service
 from api import chat
+from api.meals import router as meals_router
 
 # Load environment variables
 load_dotenv()
@@ -87,7 +88,7 @@ async def startup_event():
 
 # Include API routers
 app.include_router(users.router, prefix="/api/users", tags=["users"])
-app.include_router(meals.router, prefix="/api/meals", tags=["meals"]) 
+app.include_router(meals_router, prefix="/api/health/meals", tags=["meals"])
 app.include_router(flutter_compat.router, prefix="/api/health", tags=["flutter-health"])
 app.include_router(chat.router, prefix="/api/health")
 

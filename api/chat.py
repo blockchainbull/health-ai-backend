@@ -112,7 +112,7 @@ async def get_user_chat_context(user_id: str):
         
         # Weekly sleep
         weekly_sleep_response = supabase_service.client.table('sleep_entries')\
-            .select('hours_slept')\
+            .select('total_hours')\
             .eq('user_id', user_id)\
             .gte('date', week_ago)\
             .lte('date', today_str)\
@@ -123,7 +123,7 @@ async def get_user_chat_context(user_id: str):
         days_with_data = len(set(m.get('meal_date', '')[:10] for m in weekly_meals)) or 1
         avg_daily_calories = sum(float(m.get('calories', 0)) for m in weekly_meals) / days_with_data
         
-        avg_sleep_hours = sum(float(s.get('hours_slept', 0)) for s in weekly_sleep) / len(weekly_sleep) if weekly_sleep else 0
+        avg_sleep_hours = sum(s.get('total_hours', 0) for s in weekly_sleep.data) / len(weekly_sleep.data) if weekly_sleep.data else 0
         
         # Get weight trend
         weight_history_response = supabase_service.client.table('weight_entries')\
