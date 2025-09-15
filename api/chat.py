@@ -93,13 +93,12 @@ async def get_user_chat_context(user_id: str):
         week_ago = (today - timedelta(days=7)).isoformat()
         
         # Weekly meals
-        weekly_meals_response = supabase_service.client.table('meal_entries')\
-            .select('calories')\
+        weekly_meals = supabase_service.client.table('meal_entries')\
+            .select('*')\
             .eq('user_id', user_id)\
-            .gte('meal_date', f"{week_ago}T00:00:00")\
-            .lte('meal_date', f"{today_str}T23:59:59")\
+            .gte('meal_date', week_ago.isoformat())\
+            .lte('meal_date', today.isoformat())\
             .execute()
-        weekly_meals = weekly_meals_response.data if weekly_meals_response.data else []
         
         # Weekly exercises
         weekly_exercises_response = supabase_service.client.table('exercise_logs')\
@@ -111,19 +110,19 @@ async def get_user_chat_context(user_id: str):
         weekly_exercises = weekly_exercises_response.data if weekly_exercises_response.data else []
         
         # Weekly sleep
-        weekly_sleep_response = supabase_service.client.table('sleep_entries')\
-            .select('total_hours')\
+        weekly_sleep = supabase_service.client.table('sleep_entries')\
+            .select('*')\
             .eq('user_id', user_id)\
-            .gte('date', week_ago)\
-            .lte('date', today_str)\
+            .gte('date', week_ago.isoformat())\
+            .lte('date', today.isoformat())\
             .execute()
-        weekly_sleep = weekly_sleep_response.data if weekly_sleep_response.data else []
         
         # Calculate weekly averages
         days_with_data = len(set(m.get('meal_date', '')[:10] for m in weekly_meals)) or 1
-        avg_daily_calories = sum(float(m.get('calories', 0)) for m in weekly_meals) / days_with_data
+        meals_data = weekly_meals.data if hasattr(weekly_meals, 'data') else weekly_meals
         
-        avg_sleep_hours = sum(s.get('total_hours', 0) for s in weekly_sleep.data) / len(weekly_sleep.data) if weekly_sleep.data else 0
+        sleep_data = weekly_sleep.data if hasattr(weekly_sleep, 'data') else weekly_sleep
+        avg_sleep_hours = sum(s.get('total_hours', 0) for s in sleep_data) / len(sleep_data) if sleep_data else 0
         
         # Get weight trend
         weight_history_response = supabase_service.client.table('weight_entries')\
@@ -184,7 +183,7 @@ async def get_user_chat_context(user_id: str):
                 'weight_logged': weight_data.get('weight') if weight_data else None,
             },
             'weekly_summary': {
-                'avg_daily_calories': round(avg_daily_calories, 0),
+                'avg_daily_calories': round(meals_data, 0),
                 'total_workouts': len(weekly_exercises),
                 'total_exercise_minutes': sum(int(e.get('duration_minutes', 0)) for e in weekly_exercises if e.get('duration_minutes')),
                 'avg_sleep_hours': round(avg_sleep_hours, 1),

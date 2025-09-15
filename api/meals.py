@@ -23,7 +23,7 @@ async def analyze_meal(request: MealAnalysisRequest):
         
         # Get services
         supabase_service = get_supabase_service()
-        parser_service = get_meal_parser_service()  # NEW
+        analysis_service = get_meal_analysis_service()
         
         # Get user context
         user = await supabase_service.get_user_by_id(request.user_id)
@@ -37,12 +37,11 @@ async def analyze_meal(request: MealAnalysisRequest):
             'tdee': user.get('tdee', 2000)
         }
         
-        # Use parser for intelligent multi-food handling
-        nutrition_data = await parser_service.parse_and_analyze_meal(
-            meal_input=request.food_item,
-            default_quantity=request.quantity,
+        nutrition_data = await analysis_service.analyze_meal(
+            food_item=request.food_item,
+            quantity=request.quantity,
             user_context=user_context,
-            meal_type=request.meal_type
+            preparation=request.preparation
         )
         
         # Store components if it's a multi-food meal
