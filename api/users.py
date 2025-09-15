@@ -229,24 +229,7 @@ async def update_user_profile(user_id: str, user_data: UserUpdate):
         print(f"❌ Error updating user profile: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     
-@router.get("/users/{user_id}", response_model=UserResponse)
-async def get_user_profile(user_id: str):
-    """Get complete user profile from database"""
-    try:
-        supabase_service = get_supabase_service()
-        
-        user = await supabase_service.get_user_by_id(user_id)
-        
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        return UserResponse(**user)
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"❌ Error fetching user: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/")
 async def health_check():
