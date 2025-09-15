@@ -22,6 +22,17 @@ async def get_user_chat_context(user_id: str):
         # Get today's meals
         meals_response = await supabase_service.get_user_meals_by_date(user_id, today_str)
         meals = meals_response if meals_response else []
+
+        # Debug print to see what's coming back
+        print(f"📊 Meals fetched: {len(meals)} meals")
+        for meal in meals:
+            print(f"  - {meal.get('food_item')}: {meal.get('calories')} cal")
+        
+        # Calculate totals
+        total_calories = sum(meal.get('calories', 0) for meal in meals)
+        total_protein = sum(meal.get('protein_g', 0) for meal in meals)
+        
+        print(f"📊 Total calories calculated: {total_calories}")
         
         # Get today's water intake
         water_response = await supabase_service.get_water_entry_by_date(user_id, today_str)
@@ -45,6 +56,12 @@ async def get_user_chat_context(user_id: str):
             .lte('exercise_date', end_date)\
             .execute()
         exercises = exercises_response.data if exercises_response.data else []
+
+        exercise_minutes = sum(
+            ex.get('duration_minutes', 0) 
+            for ex in exercises 
+            if ex.get('duration_minutes') is not None
+        )
         
         # Get today's weight entry
         weight_response = supabase_service.client.table('weight_entries')\

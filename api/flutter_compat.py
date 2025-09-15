@@ -2428,6 +2428,29 @@ async def get_user_chat_context(user_id: str):
         print(f"❌ Error getting chat context: {e}")
         return {"success": False, "context": {}, "error": str(e)}
     
+@router.get("/debug/meals/{user_id}")
+async def debug_meals(user_id: str):
+    """Debug endpoint to check meal data"""
+    supabase_service = get_supabase_service()
+    
+    # Get ALL meals for this user (no date filter)
+    all_meals = supabase_service.client.table('meal_entries').select('*').eq(
+        'user_id', user_id
+    ).limit(10).execute()
+    
+    # Get today's meals
+    today = datetime.now().date().isoformat()
+    today_meals = await supabase_service.get_user_meals_by_date(user_id, today)
+    
+    return {
+        "user_id": user_id,
+        "today_date": today,
+        "all_meals_count": len(all_meals.data) if all_meals.data else 0,
+        "today_meals_count": len(today_meals),
+        "sample_meal": all_meals.data[0] if all_meals.data else None,
+        "today_meals": today_meals
+    }
+    
 @router.get("/user/{user_id}/framework")
 async def get_user_framework(user_id: str):
     try:
