@@ -2365,6 +2365,9 @@ async def delete_period_entry(period_id: str):
 @router.post("/chat", response_model=dict)
 async def health_chat(request: dict, tz_offset: int = Depends(get_timezone_offset)):
     """Enhanced health chat with OpenAI integration"""
+    import time
+    start_time = time.time()
+    
     try:
         chat_service = get_chat_service()
         user_id = request.get('user_id')
@@ -2376,6 +2379,9 @@ async def health_chat(request: dict, tz_offset: int = Depends(get_timezone_offse
         print(f"💬 Chat request from user: {user_id}")
         
         response = await chat_service.generate_chat_response(user_id, message)
+
+        elapsed = time.time() - start_time
+        print(f"⏱️ Chat response generated in {elapsed:.2f} seconds")
         
         return {
             "success": True,
