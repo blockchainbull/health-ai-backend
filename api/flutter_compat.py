@@ -422,6 +422,57 @@ async def get_health_user_profile(user_id: str):
             error=str(e)
         )
     
+@router.post("/auth/login")
+async def auth_login(login_data: dict):
+    """Login endpoint that matches Flutter's expected path"""
+    try:
+        email = login_data.get('email')
+        password = login_data.get('password')
+        
+        print(f"🔐 Flutter auth login attempt for: {email}")
+        
+        if not email or not password:
+            raise HTTPException(status_code=400, detail="Email and password required")
+        
+        supabase_service = get_supabase_service()
+        
+        # Get user by email
+        user = await supabase_service.get_user_by_email(email)
+        if not user:
+            print(f"❌ User not found: {email}")
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+        # Verify password
+        if not verify_password(password, user['password_hash']):
+            print(f"❌ Invalid password for: {email}")
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+        print(f"✅ Login successful for: {email}")
+        
+        return {
+            "success": True,
+            "user": {
+                "id": user['id'],
+                "name": user['name'],
+                "email": user['email'],
+                "age": user.get('age'),
+                "gender": user.get('gender'),
+                "height": user.get('height'),
+                "weight": user.get('weight'),
+                "activity_level": user.get('activity_level'),
+                "bmi": user.get('bmi'),
+                "bmr": user.get('bmr'),
+                "tdee": user.get('tdee')
+            },
+            "message": "Login successful"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Login error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/daily-summary/{user_id}")
 async def get_daily_summary_flutter(user_id: str, date: str = None, tz_offset: int = Depends(get_timezone_offset)):
     """Get daily summary for Flutter app with all nutrition data"""
