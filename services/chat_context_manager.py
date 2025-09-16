@@ -63,7 +63,10 @@ class ChatContextManager:
                 'today_progress': {
                     'date': str(target_date),
                     'meals': [],
+                    'meals_logged': 0,
                     'exercises': [],
+                    'exercises_done': 0,
+                    'exercise_minutes': 0,
                     'water_glasses': 0,
                     'steps': 0,
                     'weight': None,
@@ -133,6 +136,8 @@ class ChatContextManager:
                     'carbs_g': data.get('carbs_g', 0),
                     'fat_g': data.get('fat_g', 0),
                     'fiber_g': data.get('fiber_g', 0),
+                    'sugar_g': data.get('sugar_g', 0),
+                    'sodium_mg': data.get('sodium_mg', 0),
                     'logged_at': data.get('created_at', datetime.now().isoformat())
                 }
                 context['today_progress']['meals'].append(meal_entry)
@@ -143,20 +148,37 @@ class ChatContextManager:
                 context['today_progress']['totals']['carbs'] += data.get('carbs_g', 0)
                 context['today_progress']['totals']['fat'] += data.get('fat_g', 0)
                 context['today_progress']['totals']['fiber'] += data.get('fiber_g', 0)
+                context['today_progress']['totals']['sugar'] += data.get('sugar_g', 0)
+                context['today_progress']['totals']['sodium'] += data.get('sodium_mg', 0)
             
             elif activity_type == 'exercise':
+                # Calculate duration if not provided
+                duration = data.get('duration_minutes')
+                if duration is None or duration == 0:
+                    # Estimate based on sets and reps
+                    if data.get('sets') and data.get('reps'):
+                        # Rough estimate: 3 seconds per rep + 60 seconds rest between sets
+                        duration = int((data['sets'] * data['reps'] * 3 + (data['sets'] - 1) * 60) / 60)
+                    else:
+                        duration = 15  # Default 15 minutes if no info
+                
                 exercise_entry = {
                     'id': data.get('id'),
                     'exercise_name': data.get('exercise_name'),
                     'muscle_group': data.get('muscle_group'),
-                    'duration_minutes': data.get('duration_minutes', 0),
+                    'duration_minutes': duration, 
                     'calories_burned': data.get('calories_burned', 0),
                     'sets': data.get('sets'),
                     'reps': data.get('reps'),
                     'weight_kg': data.get('weight_kg'),
                     'logged_at': data.get('created_at', datetime.now().isoformat())
                 }
+                
                 context['today_progress']['exercises'].append(exercise_entry)
+                context['today_progress']['exercises_done'] = len(context['today_progress']['exercises'])
+                context['today_progress']['exercise_minutes'] = sum(
+                    ex.get('duration_minutes', 0) for ex in context['today_progress']['exercises']
+                )
             
             elif activity_type == 'water':
                 context['today_progress']['water_glasses'] = data.get('glasses_consumed', 0)
