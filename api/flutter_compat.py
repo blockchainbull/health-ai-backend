@@ -53,15 +53,35 @@ def validate_and_sync_goals(weight_goal: str) -> str:
     
     return goal_mapping[weight_goal]
 
-def estimate_duration(exercise_type, sets, reps, weight_kg=None):
-    """Estimate exercise duration based on type and volume"""
-    if exercise_type == 'strength':
-        # Estimate: 3 seconds per rep + 60-90 seconds rest between sets
-        return int((sets * reps * 3 + (sets - 1) * 60) / 60)
-    elif exercise_type == 'cardio':
-        return 30  # Default 30 minutes for cardio
-    else:
-        return 15  # Default 15 minutes for other types
+def calculate_exercise_duration(exercise_type, sets, reps, exercise_name=None):
+    """
+    Calculate realistic duration for an exercise
+    """
+    if exercise_type == 'cardio':
+        # Cardio has its own duration field
+        return None  # Let user input actual duration
+    
+    elif exercise_type == 'strength':
+        # Time per rep (in seconds)
+        time_per_rep = 3  # Average 3 seconds per rep (1 up, 1 hold, 1 down)
+        
+        # Rest time between sets (in seconds)
+        rest_between_sets = 60  # 1 minute rest for most exercises
+        
+        # Adjust rest time based on exercise intensity
+        heavy_exercises = ['squat', 'deadlift', 'bench press', 'leg press']
+        if exercise_name and any(heavy in exercise_name.lower() for heavy in heavy_exercises):
+            rest_between_sets = 90  # 1.5 minutes for heavy compound movements
+        
+        # Calculate total time
+        total_rep_time = sets * reps * time_per_rep
+        total_rest_time = (sets - 1) * rest_between_sets if sets > 1 else 0
+        setup_time = 30  # 30 seconds to set up/adjust weights
+        
+        total_seconds = total_rep_time + total_rest_time + setup_time
+        duration_minutes = round(total_seconds / 60, 1)
+        
+        return duration_minutes
 
 
 router = APIRouter()
@@ -1832,10 +1852,11 @@ async def log_exercise(exercise_data: dict, tz_offset: int = Depends(get_timezon
             if exercise_data.get('weight_kg') is not None and exercise_data.get('weight_kg') > 0:
                 exercise_log_data['weight_kg'] = float(exercise_data.get('weight_kg'))
             if not exercise_data.get('duration_minutes'):
-                exercise_data['duration_minutes'] = estimate_duration(
-                    exercise_data.get('exercise_type'),
-                    exercise_data.get('sets', 3),
-                    exercise_data.get('reps', 10)
+                exercise_data['duration_minutes'] = calculate_exercise_duration(
+                    exercise_type=exercise_data.get('exercise_type', 'strength'),
+                    sets=exercise_data.get('sets', 3),
+                    reps=exercise_data.get('reps', 12),
+                    exercise_name=exercise_data.get('exercise_name')
                 )
             if exercise_data.get('calories_burned') is not None:
                 exercise_log_data['calories_burned'] = float(exercise_data.get('calories_burned'))
@@ -1984,7 +2005,7 @@ async def get_exercise_stats(user_id: str, days: int = 30, tz_offset: int = Depe
         }
 
 @router.delete("/exercise/log/{exercise_id}")
-async def delete_exercise_log(exercise_id: str, user_id: str = Query(None)):
+async def delete_exercise_log(exercise_id: str):
     """Delete an exercise log entry"""
     try:
         print(f"💪 Deleting exercise log: {exercise_id}")
@@ -2004,7 +2025,7 @@ async def delete_exercise_log(exercise_id: str, user_id: str = Query(None)):
             # Update context - remove this specific exercise
             exercise_date = datetime.fromisoformat(exercise['exercise_date']).date()
             await context_manager.remove_from_context(
-                exercise['user_id'],
+                exercise['user_id'],  # Get user_id from the exercise record
                 'exercise',
                 exercise_id,
                 exercise_date
