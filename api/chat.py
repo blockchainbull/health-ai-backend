@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from datetime import datetime, timedelta
+from typing import Optional
 from services.supabase_service import get_supabase_service
 from services.chat_context_manager import get_context_manager
 
