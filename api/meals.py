@@ -11,7 +11,7 @@ from models.meal_schemas import (
 )
 from services.supabase_service import get_supabase_service
 from services.meal_analysis_service import get_meal_analysis_service
-from services.meal_parser_service import get_meal_parser_service
+from services.chat_context_manager import get_context_manager
 
 router = APIRouter()
 
@@ -24,6 +24,7 @@ async def analyze_meal(request: MealAnalysisRequest):
         # Get services
         supabase_service = get_supabase_service()
         analysis_service = get_meal_analysis_service()
+        context_manager = get_context_manager()
         
         # Get user context
         user = await supabase_service.get_user_by_id(request.user_id)
@@ -74,6 +75,15 @@ async def analyze_meal(request: MealAnalysisRequest):
         # Save to database
         saved_meal = await supabase_service.create_meal_entry(meal_entry)
         
+        # Update chat context with the new meal
+        meal_date = datetime.fromisoformat(meal_entry['meal_date']).date()
+        await context_manager.update_context_activity(
+            request.user_id,
+            'meal',
+            saved_meal,
+            meal_date
+        )
+        
         # Update daily nutrition
         await update_daily_nutrition(
             supabase_service, 
@@ -101,11 +111,50 @@ async def analyze_meal(request: MealAnalysisRequest):
             suggestions=nutrition_data.get('suggestions'),
             meal_date=saved_meal['meal_date'],
             logged_at=saved_meal['logged_at'],
-            data_source=saved_meal.get('data_source', 'ai')  # Include source in response
+            data_source=saved_meal.get('data_source', 'ai')
         )
         
     except Exception as e:
         print(f"❌ Error analyzing meal: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Add log endpoint if it doesn't exist
+@router.post("/log", response_model=dict)
+async def log_meal(meal_entry: dict):
+    """Log a meal entry directly (for manual entries)"""
+    try:
+        supabase_service = get_supabase_service()
+        context_manager = get_context_manager()
+        
+        # Add IDs and timestamps
+        meal_entry['id'] = str(uuid.uuid4())
+        meal_entry['logged_at'] = datetime.now().isoformat()
+        meal_entry['updated_at'] = datetime.now().isoformat()
+        
+        # Save to database
+        created_entry = await supabase_service.create_meal_entry(meal_entry)
+        
+        # Update chat context
+        meal_date = datetime.fromisoformat(meal_entry.get('meal_date', datetime.now().isoformat())).date()
+        await context_manager.update_context_activity(
+            meal_entry['user_id'],
+            'meal',
+            created_entry,
+            meal_date
+        )
+        
+        # Update daily nutrition
+        await update_daily_nutrition(
+            supabase_service,
+            meal_entry['user_id'],
+            meal_date.isoformat(),
+            created_entry
+        )
+        
+        return {"success": True, "meal": created_entry}
+        
+    except Exception as e:
+        print(f"❌ Error logging meal: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{user_id}/history", response_model=MealHistoryResponse)
@@ -149,6 +198,72 @@ async def get_meal_history(user_id: str, limit: int = 20, date_from: Optional[st
     except Exception as e:
         print(f"❌ Error getting meal history: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.delete("/{meal_id}")
+async def delete_meal(meal_id: str):
+    """Delete a meal entry and update context"""
+    try:
+        print(f"🍽️ Deleting meal: {meal_id}")
+        
+        supabase_service = get_supabase_service()
+        context_manager = get_context_manager()
+        
+        # Get meal details before deletion
+        meal = await supabase_service.get_meal_by_id(meal_id)
+        if not meal:
+            raise HTTPException(status_code=404, detail="Meal not found")
+        
+        # Delete from database
+        success = await supabase_service.delete_meal(meal_id)
+        
+        if success:
+            # Update context - remove this specific meal
+            meal_date = datetime.fromisoformat(meal['meal_date']).date()
+            await context_manager.remove_from_context(
+                meal['user_id'],
+                'meal',
+                meal_id,
+                meal_date
+            )
+            
+            # Also update daily nutrition totals
+            await recalculate_daily_nutrition(
+                supabase_service,
+                meal['user_id'],
+                meal_date.isoformat()
+            )
+            
+            return {"success": True, "message": "Meal deleted successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to delete meal")
+            
+    except Exception as e:
+        print(f"❌ Error deleting meal: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Helper function to recalculate daily nutrition after deletion
+async def recalculate_daily_nutrition(supabase_service, user_id: str, date: str):
+    """Recalculate daily nutrition totals after a meal deletion"""
+    try:
+        # Get all meals for the day
+        meals = await supabase_service.get_user_meals_by_date(user_id, date)
+        
+        # Calculate new totals
+        totals = {
+            'total_calories': sum(m.get('calories', 0) for m in meals),
+            'total_protein': sum(m.get('protein_g', 0) for m in meals),
+            'total_carbs': sum(m.get('carbs_g', 0) for m in meals),
+            'total_fat': sum(m.get('fat_g', 0) for m in meals),
+            'total_fiber': sum(m.get('fiber_g', 0) for m in meals),
+            'total_sugar': sum(m.get('sugar_g', 0) for m in meals),
+            'total_sodium': sum(m.get('sodium_mg', 0) for m in meals),
+        }
+        
+        # Update daily nutrition table
+        await supabase_service.update_daily_nutrition(user_id, date, totals)
+        
+    except Exception as e:
+        print(f"Error recalculating daily nutrition: {e}")
 
 @router.get("/")
 async def meals_health_check():

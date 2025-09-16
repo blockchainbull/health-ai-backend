@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from datetime import datetime, timedelta
 import uuid
 from api.meals import update_daily_nutrition
+from services.chat_context_manager import get_context_manager
 
 from models.water_schemas import WaterEntryCreate
 from services.supabase_service import get_supabase_service
@@ -571,20 +572,30 @@ async def update_meal_flutter(meal_id: str, meal_data: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/meals/{meal_id}")
-async def delete_meal_flutter(meal_id: str):
-    """Delete meal entry for Flutter app"""
+async def delete_meal(meal_id: str, user_id: str):
+    """Delete meal and update context"""
     try:
-        print(f"🗑️ Deleting meal {meal_id}")
-        
         supabase_service = get_supabase_service()
+        
+        # Get meal details before deletion
+        meal = await supabase_service.get_meal_by_id(meal_id)
+        if not meal:
+            raise HTTPException(status_code=404, detail="Meal not found")
         
         # Delete from database
         await supabase_service.delete_meal(meal_id)
         
-        return {
-            "success": True,
-            "message": "Meal deleted successfully"
-        }
+        # Update context
+        context_manager = get_context_manager()
+        meal_date = datetime.fromisoformat(meal['created_at']).date()
+        await context_manager.remove_from_context(
+            user_id,
+            'meal',
+            meal_id,
+            meal_date
+        )
+        
+        return {"success": True, "message": "Meal deleted"}
         
     except Exception as e:
         print(f"❌ Error deleting meal: {e}")
@@ -629,11 +640,21 @@ async def save_water_entry(water_data: WaterEntryCreate, tz_offset: int = Depend
             )
             return {"success": True, "id": existing_entry['id'], "entry": updated_entry}
         else:
-            # Create new entry
             water_entry_data['id'] = str(uuid.uuid4())
             water_entry_data['created_at'] = get_user_now(tz_offset).isoformat()
             created_entry = await supabase_service.create_water_entry(water_entry_data)
-            return {"success": True, "id": created_entry['id'], "entry": created_entry}
+            result = {"success": True, "id": created_entry['id'], "entry": created_entry}
+        
+        # Update chat context
+        context_manager = get_context_manager()
+        await context_manager.update_context_activity(
+            water_data.user_id,
+            'water',
+            water_entry_data,
+            entry_date
+        )
+
+        return result
             
     except Exception as e:
         print(f"❌ Error saving water entry: {e}")
@@ -682,6 +703,43 @@ async def get_water_history(user_id: str, limit: int = 30):
         
     except Exception as e:
         print(f"❌ Error getting water history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.delete("/water/{user_id}/{date}")
+async def delete_water_entry(user_id: str, date: str, tz_offset: int = Depends(get_timezone_offset)):
+    """Delete water entry for a specific date"""
+    try:
+        print(f"💧 Deleting water entry for user: {user_id}, date: {date}")
+        
+        supabase_service = get_supabase_service()
+        context_manager = get_context_manager()
+        
+        # Parse date
+        entry_date = get_user_date(date, tz_offset)
+        
+        # Get existing entry
+        existing = await supabase_service.get_water_entry_by_date(user_id, entry_date)
+        if not existing:
+            return {"success": False, "message": "Water entry not found"}
+        
+        # Delete from database
+        success = await supabase_service.delete_water_entry(existing['id'])
+        
+        if success:
+            # Update context - reset water to 0
+            await context_manager.update_context_activity(
+                user_id,
+                'water',
+                {'glasses_consumed': 0},
+                entry_date
+            )
+            
+            return {"success": True, "message": "Water entry deleted successfully"}
+        else:
+            return {"success": False, "message": "Failed to delete water entry"}
+        
+    except Exception as e:
+        print(f"❌ Error deleting water entry: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/water/{user_id}/stats")
@@ -767,18 +825,27 @@ async def save_step_entry(step_data: StepEntryCreate, tz_offset: int = Depends(g
         }
         
         if existing_entry:
-            # Update existing entry
             updated_entry = await supabase_service.update_step_entry(
                 existing_entry['id'], 
                 step_entry_data
             )
-            return {"success": True, "id": existing_entry['id'], "entry": updated_entry}
+            result = {"success": True, "id": existing_entry['id'], "entry": updated_entry}
         else:
-            # Create new entry
             step_entry_data['id'] = str(uuid.uuid4())
             step_entry_data['created_at'] = get_user_now(tz_offset).isoformat()
             created_entry = await supabase_service.create_step_entry(step_entry_data)
-            return {"success": True, "id": created_entry['id'], "entry": created_entry}
+            result = {"success": True, "id": created_entry['id'], "entry": created_entry}
+        
+        # Update chat context
+        context_manager = get_context_manager()
+        await context_manager.update_context_activity(
+            step_data.userId,
+            'steps',
+            step_entry_data,
+            entry_date
+        )
+        
+        return result
             
     except Exception as e:
         print(f"❌ Error saving step entry: {e}")
@@ -892,13 +959,23 @@ async def delete_step_entry(user_id: str, date: str, tz_offset: int = Depends(ge
         print(f"🚶 Deleting step entry for user: {user_id}, date: {date}")
         
         supabase_service = get_supabase_service()
+        context_manager = get_context_manager()
         
         # Parse date
         entry_date = get_user_date(date, tz_offset)
         
+        # Delete from database
         success = await supabase_service.delete_step_entry_by_date(user_id, entry_date)
         
         if success:
+            # Update context - reset steps to 0
+            await context_manager.update_context_activity(
+                user_id,
+                'steps',
+                {'steps': 0},
+                entry_date
+            )
+            
             return {"success": True, "message": "Step entry deleted successfully"}
         else:
             return {"success": False, "message": "Step entry not found"}
@@ -1003,7 +1080,18 @@ async def save_weight_entry(weight_data: WeightEntryCreate, tz_offset: int = Dep
         # Always create new entry for weight (allow multiple entries per day)
         weight_entry_data['id'] = str(uuid.uuid4())
         weight_entry_data['created_at'] = get_user_now(tz_offset).isoformat()
+
         created_entry = await supabase_service.create_weight_entry(weight_entry_data)
+        
+        # Update chat context (use date only from datetime)
+        context_manager = get_context_manager()
+        entry_date_only = entry_datetime.date()
+        await context_manager.update_context_activity(
+            weight_data.user_id,
+            'weight',
+            weight_entry_data,
+            entry_date_only
+        )
         
         return {"success": True, "id": created_entry['id'], "entry": created_entry}
             
@@ -1058,12 +1146,29 @@ async def delete_weight_entry(entry_id: str):
         print(f"⚖️ Deleting weight entry: {entry_id}")
         
         supabase_service = get_supabase_service()
+        context_manager = get_context_manager()
+        
+        # Get entry details before deletion
+        entry = await supabase_service.get_weight_entry_by_id(entry_id)
+        if not entry:
+            return {"success": False, "message": "Weight entry not found"}
+        
+        # Delete from database
         success = await supabase_service.delete_weight_entry(entry_id)
         
         if success:
+            # Update context - remove weight for that date
+            entry_date = datetime.fromisoformat(entry['date']).date()
+            await context_manager.update_context_activity(
+                entry['user_id'],
+                'weight',
+                {'weight': None},  # Set to None to indicate no weight for today
+                entry_date
+            )
+            
             return {"success": True, "message": "Weight entry deleted successfully"}
         else:
-            return {"success": False, "message": "Weight entry not found"}
+            return {"success": False, "message": "Failed to delete weight entry"}
         
     except Exception as e:
         print(f"❌ Error deleting weight entry: {e}")
@@ -1169,18 +1274,27 @@ async def create_sleep_entry(sleep_data: SleepEntryCreate, tz_offset: int = Depe
         }
         
         if existing_entry:
-            # Update existing entry
             updated_entry = await supabase_service.update_sleep_entry(
                 existing_entry['id'], 
                 sleep_entry_data
             )
-            return {"success": True, "id": existing_entry['id'], "entry": updated_entry}
+            result = {"success": True, "id": existing_entry['id'], "entry": updated_entry}
         else:
-            # Create new entry
             sleep_entry_data['id'] = str(uuid.uuid4())
             sleep_entry_data['created_at'] = get_user_now(tz_offset).isoformat()
             created_entry = await supabase_service.create_sleep_entry(sleep_entry_data)
-            return {"success": True, "id": created_entry['id'], "entry": created_entry}
+            result = {"success": True, "id": created_entry['id'], "entry": created_entry}
+        
+        # Update chat context
+        context_manager = get_context_manager()
+        await context_manager.update_context_activity(
+            sleep_data.user_id,
+            'sleep',
+            sleep_entry_data,
+            entry_date
+        )
+        
+        return result
             
     except Exception as e:
         print(f"❌ Error creating sleep entry: {e}")
@@ -1332,12 +1446,29 @@ async def delete_sleep_entry(entry_id: str):
         print(f"😴 Deleting sleep entry: {entry_id}")
         
         supabase_service = get_supabase_service()
+        context_manager = get_context_manager()
+        
+        # Get entry details before deletion
+        entry = await supabase_service.get_sleep_entry_by_id(entry_id)
+        if not entry:
+            return {"success": False, "message": "Sleep entry not found"}
+        
+        # Delete from database
         success = await supabase_service.delete_sleep_entry(entry_id)
         
         if success:
+            # Update context - remove sleep hours
+            entry_date = datetime.fromisoformat(entry['date']).date()
+            await context_manager.update_context_activity(
+                entry['user_id'],
+                'sleep',
+                {'total_hours': None},
+                entry_date
+            )
+            
             return {"success": True, "message": "Sleep entry deleted successfully"}
         else:
-            return {"success": False, "message": "Sleep entry not found"}
+            return {"success": False, "message": "Failed to delete sleep entry"}
         
     except Exception as e:
         print(f"❌ Error deleting sleep entry: {e}")
@@ -1489,18 +1620,27 @@ async def log_supplement_intake(log_data: SupplementLogCreate, tz_offset: int = 
         }
         
         if existing_log:
-            # Update existing log
             updated_log = await supabase_service.update_supplement_log(
                 existing_log['id'],
                 log_entry_data
             )
-            return {"success": True, "id": existing_log['id'], "log": updated_log}
+            result = {"success": True, "id": existing_log['id'], "log": updated_log}
         else:
-            # Create new log
             log_entry_data['id'] = str(uuid.uuid4())
             log_entry_data['created_at'] = get_user_now(tz_offset).isoformat()
             created_log = await supabase_service.create_supplement_log(log_entry_data)
-            return {"success": True, "id": created_log['id'], "log": created_log}
+            result = {"success": True, "id": created_log['id'], "log": created_log}
+        
+        # Update chat context
+        context_manager = get_context_manager()
+        await context_manager.update_context_activity(
+            log_data.user_id,
+            'supplement',
+            log_entry_data,
+            entry_date
+        )
+        
+        return result
             
     except Exception as e:
         print(f"❌ Error logging supplement intake: {e}")
@@ -1703,6 +1843,15 @@ async def log_exercise(exercise_data: dict, tz_offset: int = Depends(get_timezon
         print(f"💪 Processed exercise data: {exercise_log_data}")
         
         created_log = await supabase_service.create_exercise_log(exercise_log_data)
+
+        context_manager = get_context_manager()
+        exercise_date_obj = datetime.fromisoformat(exercise_date.isoformat()).date()
+        await context_manager.update_context_activity(
+            exercise_data.get('user_id'),
+            'exercise',
+            created_log,
+            exercise_date_obj
+        )
         
         return {"success": True, "id": created_log['id'], "exercise": created_log}
         
@@ -1834,20 +1983,37 @@ async def get_exercise_stats(user_id: str, days: int = 30, tz_offset: int = Depe
             "error": str(e)
         }
 
-@router.delete("/exercise/{exercise_id}")
-async def delete_exercise(exercise_id: str):
-    """Delete an exercise log"""
+@router.delete("/exercise/log/{exercise_id}")
+async def delete_exercise_log(exercise_id: str, user_id: str = Query(None)):
+    """Delete an exercise log entry"""
     try:
-        print(f"💪 Deleting exercise: {exercise_id}")
+        print(f"💪 Deleting exercise log: {exercise_id}")
         
         supabase_service = get_supabase_service()
+        context_manager = get_context_manager()
+        
+        # Get exercise details before deletion
+        exercise = await supabase_service.get_exercise_by_id(exercise_id)
+        if not exercise:
+            raise HTTPException(status_code=404, detail="Exercise not found")
+        
+        # Delete from database
         success = await supabase_service.delete_exercise_log(exercise_id)
         
         if success:
+            # Update context - remove this specific exercise
+            exercise_date = datetime.fromisoformat(exercise['exercise_date']).date()
+            await context_manager.remove_from_context(
+                exercise['user_id'],
+                'exercise',
+                exercise_id,
+                exercise_date
+            )
+            
             return {"success": True, "message": "Exercise deleted successfully"}
         else:
-            return {"success": False, "message": "Exercise not found"}
-        
+            raise HTTPException(status_code=500, detail="Failed to delete exercise")
+            
     except Exception as e:
         print(f"❌ Error deleting exercise: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1915,24 +2081,6 @@ async def get_weekly_exercise_summary(user_id: str, tz_offset: int = Depends(get
     except Exception as e:
         print(f"❌ Error getting weekly summary: {e}")
         return {"success": False, "summary": {}}
-
-@router.delete("/exercise/log/{exercise_id}")
-async def delete_exercise_log(exercise_id: str, user_id: str = None):
-    """Delete an exercise log entry"""
-    try:
-        print(f"💪 Deleting exercise log: {exercise_id}")
-        
-        supabase_service = get_supabase_service()
-        success = await supabase_service.delete_exercise_log(exercise_id)
-        
-        if success:
-            return {"success": True, "message": "Exercise deleted successfully"}
-        else:
-            raise HTTPException(status_code=404, detail="Exercise not found")
-            
-    except Exception as e:
-        print(f"❌ Error deleting exercise: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/exercise/history/{user_id}")
 async def get_exercise_history(
@@ -2057,6 +2205,8 @@ async def delete_period_entry(period_id: str):
         print(f"🌸 Deleting period entry: {period_id}")
         
         supabase_service = get_supabase_service()
+        # Period entries might not need context updates as they're not daily metrics
+        
         success = await supabase_service.delete_period_entry(period_id)
         
         if success:

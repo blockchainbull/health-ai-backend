@@ -159,14 +159,18 @@ class SupabaseService:
             print(f"❌ Error updating meal: {e}")
             raise
 
-    async def delete_meal(self, meal_id: str) -> bool:
-        """Delete a meal entry"""
+    async def delete_meal(self, meal_id: str):
+        """Delete meal entry"""
         try:
-            self.client.table('meal_entries').delete().eq('id', meal_id).execute()
+            response = self.client.table('meal_entries')\
+                .delete()\
+                .eq('id', meal_id)\
+                .execute()
+            
             return True
         except Exception as e:
-            print(f"❌ Error deleting meal: {e}")
-            raise
+            print(f"Error deleting meal: {e}")
+            return False
 
     async def get_daily_nutrition(self, user_id: str, date: str) -> Optional[Dict[str, Any]]:
         """Get daily nutrition summary for a specific date"""
@@ -1161,6 +1165,71 @@ class SupabaseService:
             .eq('date', str(date))\
             .execute()
         return response.data[0] if response.data else {}
+    
+    async def get_weight_entry_by_id(self, entry_id: str):
+        """Get weight entry by ID"""
+        try:
+            response = self.client.table('weight_entries')\
+                .select('*')\
+                .eq('id', entry_id)\
+                .execute()
+            
+            return response.data[0] if response.data else None
+        except Exception as e:
+            print(f"Error getting weight entry: {e}")
+            return None
+
+    async def get_sleep_entry_by_id(self, entry_id: str):
+        """Get sleep entry by ID"""
+        try:
+            response = self.client.table('sleep_entries')\
+                .select('*')\
+                .eq('id', entry_id)\
+                .execute()
+            
+            return response.data[0] if response.data else None
+        except Exception as e:
+            print(f"Error getting sleep entry: {e}")
+            return None
+
+    async def get_exercise_by_id(self, exercise_id: str):
+        """Get exercise by ID"""
+        try:
+            response = self.client.table('exercise_logs')\
+                .select('*')\
+                .eq('id', exercise_id)\
+                .execute()
+            
+            return response.data[0] if response.data else None
+        except Exception as e:
+            print(f"Error getting exercise: {e}")
+            return None
+
+    async def get_meal_by_id(self, meal_id: str):
+        """Get meal by ID"""
+        try:
+            response = self.client.table('meal_entries')\
+                .select('*')\
+                .eq('id', meal_id)\
+                .execute()
+            
+            return response.data[0] if response.data else None
+        except Exception as e:
+            print(f"Error getting meal: {e}")
+            return None
+
+    async def delete_water_entry(self, entry_id: str):
+        """Delete water entry"""
+        try:
+            response = self.client.table('daily_water')\
+                .delete()\
+                .eq('id', entry_id)\
+                .execute()
+            
+            return True
+        except Exception as e:
+            print(f"Error deleting water entry: {e}")
+            return False
 
 # Global instance - we'll initialize this in main.py
 supabase_service = None

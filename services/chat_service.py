@@ -299,6 +299,21 @@ class HealthChatService:
             import traceback
             traceback.print_exc()
             return self._get_empty_context()
+        
+    async def get_enhanced_context(self, user_id: str) -> Dict[str, Any]:
+        """Get enhanced context using cache"""
+        try:
+            from services.chat_context_manager import get_context_manager
+            
+            context_manager = get_context_manager()
+            result = await context_manager.get_or_create_context(user_id)
+            
+            return result['context']
+            
+        except Exception as e:
+            print(f"Error getting enhanced context: {e}")
+            # Fallback to regular context
+            return await self.get_user_context(user_id)
     
     def _calculate_hydration_consistency(self, water_logs: List[Dict]) -> float:
         """Calculate water intake consistency"""
