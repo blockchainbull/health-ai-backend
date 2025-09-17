@@ -1,3 +1,4 @@
+# api/chat.py
 from fastapi import APIRouter, HTTPException
 from datetime import datetime, timedelta
 from typing import Optional
@@ -114,6 +115,38 @@ async def rebuild_context(user_id: str, date: Optional[str] = None):
             'success': True,
             'message': 'Context rebuilt successfully',
             **result
+        }
+        
+    except Exception as e:
+        return {
+            'success': False,
+            'error': str(e)
+        }
+    
+@router.post("/context/fix-today/{user_id}")
+async def fix_today_context(user_id: str):
+    """Delete and rebuild today's context"""
+    try:
+        from datetime import datetime
+        
+        supabase_service = get_supabase_service()
+        today = datetime.now().date()
+        
+        # Delete today's corrupted context
+        supabase_service.client.table('chat_contexts')\
+            .delete()\
+            .eq('user_id', user_id)\
+            .eq('date', str(today))\
+            .execute()
+        
+        # Force fresh generation
+        context_manager = get_context_manager()
+        result = await context_manager.generate_fresh_context(user_id, today)
+        
+        return {
+            'success': True,
+            'message': 'Context fixed and rebuilt',
+            'context': result['context']
         }
         
     except Exception as e:

@@ -142,14 +142,14 @@ class ChatContextManager:
                 }
                 context['today_progress']['meals'].append(meal_entry)
                 
+                context['today_progress']['meals_logged'] = len(context['today_progress']['meals'])
+
                 # Update totals
                 context['today_progress']['totals']['calories'] += data.get('calories', 0)
                 context['today_progress']['totals']['protein'] += data.get('protein_g', 0)
                 context['today_progress']['totals']['carbs'] += data.get('carbs_g', 0)
                 context['today_progress']['totals']['fat'] += data.get('fat_g', 0)
                 context['today_progress']['totals']['fiber'] += data.get('fiber_g', 0)
-                context['today_progress']['totals']['sugar'] += data.get('sugar_g', 0)
-                context['today_progress']['totals']['sodium'] += data.get('sodium_mg', 0)
             
             elif activity_type == 'exercise':
                 # Calculate duration if not provided
