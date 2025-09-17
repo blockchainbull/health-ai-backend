@@ -297,19 +297,63 @@ class ChatContextManager:
             return {'success': False, 'error': str(e)}
         
     async def generate_fresh_context(self, user_id: str, target_date: date) -> Dict[str, Any]:
-        """Generate fresh context from source tables"""
+        """Generate fresh context from source tables (fallback)"""
         try:
             # Get user profile
             user = await self.supabase_service.get_user_by_id(user_id)
             if not user:
                 raise Exception("User not found")
             
-            # Get actual activities for the date
-            from services.chat_service import HealthChatService
-            chat_service = HealthChatService()
-            activities = await chat_service.get_today_activities(user_id, target_date)
+            # ACTUALLY FETCH THE DATA FROM THE DATABASE
+            # Get meals for today
+            meals_response = self.supabase_service.client.table('meal_entries')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .gte('meal_date', f"{target_date}T00:00:00")\
+                .lte('meal_date', f"{target_date}T23:59:59")\
+                .execute()
             
-            # Build context with ACTUAL data
+            meals = meals_response.data if meals_response.data else []
+            
+            # Get exercises for today  
+            exercise_response = self.supabase_service.client.table('exercise_logs')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .gte('exercise_date', f"{target_date}T00:00:00")\
+                .lte('exercise_date', f"{target_date}T23:59:59")\
+                .execute()
+            
+            exercises = exercise_response.data if exercise_response.data else []
+            
+            # Get water for today
+            water_response = self.supabase_service.client.table('daily_water')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('date', str(target_date))\
+                .execute()
+            
+            water = water_response.data[0] if water_response.data else {}
+            
+            # Get steps for today
+            steps_response = self.supabase_service.client.table('daily_steps')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('date', str(target_date))\
+                .execute()
+            
+            steps = steps_response.data[0] if steps_response.data else {}
+            
+            # Calculate totals from meals
+            total_calories = sum(m.get('calories', 0) for m in meals)
+            total_protein = sum(m.get('protein_g', 0) for m in meals)
+            total_carbs = sum(m.get('carbs_g', 0) for m in meals)
+            total_fat = sum(m.get('fat_g', 0) for m in meals)
+            total_fiber = sum(m.get('fiber_g', 0) for m in meals)
+            
+            # Calculate exercise minutes
+            total_exercise_minutes = sum(e.get('duration_minutes', 0) for e in exercises)
+            
+            # Build context with ACTUAL DATA
             context = {
                 'user_profile': {
                     'name': user.get('name', ''),
@@ -326,74 +370,58 @@ class ChatContextManager:
                 },
                 'today_progress': {
                     'date': str(target_date),
-                    'meals': [],
-                    'meals_logged': 0,
-                    'exercises': [],
-                    'exercises_done': 0,
-                    'exercise_minutes': 0,
-                    'water_glasses': 0,
-                    'steps': 0,
+                    'meals': [{'food_item': m['food_item'], 'calories': m['calories']} for m in meals],
+                    'meals_logged': len(meals),
+                    'total_calories': total_calories,
+                    'total_protein': total_protein,
+                    'total_carbs': total_carbs,
+                    'total_fat': total_fat,
+                    'exercises': [{'exercise_name': e['exercise_name'], 'duration': e.get('duration_minutes', 0)} for e in exercises],
+                    'exercises_done': len(exercises),
+                    'exercise_minutes': total_exercise_minutes,
+                    'water_glasses': water.get('glasses_consumed', 0),
+                    'steps': steps.get('steps', 0),
                     'weight': None,
                     'sleep_hours': None,
                     'supplements_taken': [],
                     'totals': {
-                        'calories': 0,
-                        'protein': 0,
-                        'carbs': 0,
-                        'fat': 0,
-                        'fiber': 0
+                        'calories': total_calories,
+                        'protein': total_protein,
+                        'carbs': total_carbs,
+                        'fat': total_fat,
+                        'fiber': total_fiber
                     }
                 },
-                'context_metadata': {
-                    'created_at': datetime.now().isoformat(),
-                    'version': 1,
-                    'day_of_week': target_date.strftime('%A'),
+                'weekly_summary': {
+                    'avg_daily_calories': 0,
+                    'total_workouts': 0,
+                    'avg_sleep_hours': 0,
+                    'weight_trend': 'unknown'
+                },
+                'goals_progress': {
+                    'daily_calorie_goal': user.get('tdee', 2000),
+                    'water_goal_glasses': user.get('water_intake_glasses', 8),
+                    'step_goal': user.get('daily_step_goal', 10000),
+                    'weight_progress': {
+                        'current': user.get('weight'),
+                        'target': user.get('target_weight'),
+                        'status': 'in_progress'
+                    }
                 }
             }
             
-            # NOW POPULATE WITH ACTUAL DATA
-            meals = activities.get('meals', [])
-            for meal in meals:
-                context['today_progress']['meals'].append({
-                    'food_item': meal.get('food_item'),
-                    'calories': meal.get('calories', 0),
-                    'meal_type': meal.get('meal_type'),
-                })
-                context['today_progress']['totals']['calories'] += meal.get('calories', 0)
-                context['today_progress']['totals']['protein'] += meal.get('protein_g', 0)
-                context['today_progress']['totals']['carbs'] += meal.get('carbs_g', 0)
-                context['today_progress']['totals']['fat'] += meal.get('fat_g', 0)
-                context['today_progress']['totals']['fiber'] += meal.get('fiber_g', 0)
-            
-            context['today_progress']['meals_logged'] = len(meals)
-            
-            # Add exercises
-            exercises = activities.get('exercise', [])
-            for ex in exercises:
-                context['today_progress']['exercises'].append({
-                    'exercise_name': ex.get('exercise_name'),
-                    'duration_minutes': ex.get('duration_minutes', 0),
-                })
-                context['today_progress']['exercise_minutes'] += ex.get('duration_minutes', 0)
-            
-            context['today_progress']['exercises_done'] = len(exercises)
-            
-            # Add water, steps, etc.
-            water = activities.get('water', {})
-            context['today_progress']['water_glasses'] = water.get('glasses_consumed', 0)
-            
-            steps = activities.get('steps', {})
-            context['today_progress']['steps'] = steps.get('steps', 0)
-            
-            # Save the populated context
+            # Save the POPULATED context
             self.supabase_service.client.table('chat_contexts')\
                 .upsert({
                     'user_id': user_id,
                     'date': str(target_date),
                     'context_data': context,
-                    'version': 1
+                    'version': 1,
+                    'last_updated': datetime.now().isoformat()
                 })\
                 .execute()
+            
+            print(f"✅ Context rebuilt with {len(meals)} meals and {len(exercises)} exercises")
             
             return {
                 'context': context,
@@ -403,6 +431,8 @@ class ChatContextManager:
             
         except Exception as e:
             print(f"Error generating fresh context: {e}")
+            import traceback
+            traceback.print_exc()
             raise
     
     async def rebuild_context(self, user_id: str, target_date: date = None) -> Dict[str, Any]:
@@ -418,7 +448,7 @@ class ChatContextManager:
                 .eq('date', str(target_date))\
                 .execute()
             
-            # Generate fresh context from source tables
+            # Generate fresh context with ACTUAL DATA
             return await self.generate_fresh_context(user_id, target_date)
             
         except Exception as e:
