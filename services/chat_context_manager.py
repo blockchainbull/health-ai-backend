@@ -295,6 +295,115 @@ class ChatContextManager:
         except Exception as e:
             print(f"Error removing from context: {e}")
             return {'success': False, 'error': str(e)}
+        
+    async def generate_fresh_context(self, user_id: str, target_date: date) -> Dict[str, Any]:
+        """Generate fresh context from source tables"""
+        try:
+            # Get user profile
+            user = await self.supabase_service.get_user_by_id(user_id)
+            if not user:
+                raise Exception("User not found")
+            
+            # Get actual activities for the date
+            from services.chat_service import HealthChatService
+            chat_service = HealthChatService()
+            activities = await chat_service.get_today_activities(user_id, target_date)
+            
+            # Build context with ACTUAL data
+            context = {
+                'user_profile': {
+                    'name': user.get('name', ''),
+                    'age': user.get('age'),
+                    'weight': user.get('weight'),
+                    'height': user.get('height'),
+                    'primary_goal': user.get('primary_goal'),
+                    'weight_goal': user.get('weight_goal'),
+                    'activity_level': user.get('activity_level'),
+                    'tdee': user.get('tdee'),
+                    'target_weight': user.get('target_weight'),
+                    'dietary_preferences': user.get('dietary_preferences', []),
+                    'medical_conditions': user.get('medical_conditions', []),
+                },
+                'today_progress': {
+                    'date': str(target_date),
+                    'meals': [],
+                    'meals_logged': 0,
+                    'exercises': [],
+                    'exercises_done': 0,
+                    'exercise_minutes': 0,
+                    'water_glasses': 0,
+                    'steps': 0,
+                    'weight': None,
+                    'sleep_hours': None,
+                    'supplements_taken': [],
+                    'totals': {
+                        'calories': 0,
+                        'protein': 0,
+                        'carbs': 0,
+                        'fat': 0,
+                        'fiber': 0
+                    }
+                },
+                'context_metadata': {
+                    'created_at': datetime.now().isoformat(),
+                    'version': 1,
+                    'day_of_week': target_date.strftime('%A'),
+                }
+            }
+            
+            # NOW POPULATE WITH ACTUAL DATA
+            meals = activities.get('meals', [])
+            for meal in meals:
+                context['today_progress']['meals'].append({
+                    'food_item': meal.get('food_item'),
+                    'calories': meal.get('calories', 0),
+                    'meal_type': meal.get('meal_type'),
+                })
+                context['today_progress']['totals']['calories'] += meal.get('calories', 0)
+                context['today_progress']['totals']['protein'] += meal.get('protein_g', 0)
+                context['today_progress']['totals']['carbs'] += meal.get('carbs_g', 0)
+                context['today_progress']['totals']['fat'] += meal.get('fat_g', 0)
+                context['today_progress']['totals']['fiber'] += meal.get('fiber_g', 0)
+            
+            context['today_progress']['meals_logged'] = len(meals)
+            
+            # Add exercises
+            exercises = activities.get('exercise', [])
+            for ex in exercises:
+                context['today_progress']['exercises'].append({
+                    'exercise_name': ex.get('exercise_name'),
+                    'duration_minutes': ex.get('duration_minutes', 0),
+                })
+                context['today_progress']['exercise_minutes'] += ex.get('duration_minutes', 0)
+            
+            context['today_progress']['exercises_done'] = len(exercises)
+            
+            # Add water, steps, etc.
+            water = activities.get('water', {})
+            context['today_progress']['water_glasses'] = water.get('glasses_consumed', 0)
+            
+            steps = activities.get('steps', {})
+            context['today_progress']['steps'] = steps.get('steps', 0)
+            
+            # Save the populated context
+            self.supabase_service.client.table('chat_contexts')\
+                .upsert({
+                    'user_id': user_id,
+                    'date': str(target_date),
+                    'context_data': context,
+                    'version': 1
+                })\
+                .execute()
+            
+            return {
+                'context': context,
+                'version': 1,
+                'last_updated': datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            print(f"Error generating fresh context: {e}")
+            raise
     
     async def rebuild_context(self, user_id: str, target_date: date = None) -> Dict[str, Any]:
         """Rebuild context from source tables (for fixing sync issues)"""
