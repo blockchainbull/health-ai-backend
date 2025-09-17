@@ -429,87 +429,39 @@ class HealthChatService:
         """Create enhanced system prompt with all activity data"""
         user_profile = context.get('user_profile', {})
         today_progress = context.get('today_progress', {})
-        weekly_summary = context.get('weekly_summary', {})
-        goals_progress = context.get('goals_progress', {})
         
-        # Safe division to avoid None errors
-        def safe_percentage(value, goal):
-            if value is None or goal is None or goal == 0:
-                return 0
-            return (value / goal) * 100
+        # Get the actual values from the context
+        meals_logged = today_progress.get('meals_logged', 0)
+        total_calories = today_progress.get('totals', {}).get('calories', 0)
+        total_protein = today_progress.get('totals', {}).get('protein', 0)
+        total_carbs = today_progress.get('totals', {}).get('carbs', 0)
+        total_fat = today_progress.get('totals', {}).get('fat', 0)
         
-        # Calculate completion percentages safely
-        calorie_completion = safe_percentage(
-            today_progress.get('total_calories', 0),
-            goals_progress.get('daily_calorie_goal', 2000)
-        )
-        water_completion = safe_percentage(
-            today_progress.get('water_glasses', 0),
-            goals_progress.get('water_goal_glasses', 8)
-        )
-        step_completion = safe_percentage(
-            today_progress.get('steps', 0),
-            goals_progress.get('step_goal', 10000)
-        )
+        water_glasses = today_progress.get('water_glasses', 0)
+        steps = today_progress.get('steps', 0)
+        exercise_minutes = today_progress.get('exercise_minutes', 0)
+        exercises_done = today_progress.get('exercises_done', 0)
         
-        # Use safe formatting for numbers that might be None
-        def safe_format(value, format_str="{}", default="Not set"):
-            if value is None:
-                return default
-            if format_str == "{:,}":
-                return f"{value:,}"
-            return str(value)
+        # Build the prompt with the ACTUAL data
+        prompt = f"""You are a personalized AI health coach. 
+
+    USER PROFILE:
+    - Name: {user_profile.get('name', 'User')}
+    - Age: {user_profile.get('age')}, Weight: {user_profile.get('weight')}kg
+    - Goal: {user_profile.get('primary_goal')}
+    - TDEE: {user_profile.get('tdee')} calories
+
+    TODAY'S ACTUAL DATA ({today_progress.get('date')}):
+    - Meals Logged: {meals_logged}
+    - Total Calories: {total_calories}
+    - Protein: {total_protein}g, Carbs: {total_carbs}g, Fat: {total_fat}g
+    - Water: {water_glasses} glasses
+    - Steps: {steps}
+    - Exercise: {exercise_minutes} minutes ({exercises_done} exercises)
+
+    IMPORTANT: Use these exact numbers when reporting progress. The user has logged {meals_logged} meal(s) with {total_calories} calories today."""
         
-        prompt = f"""You are a personalized AI health coach for {user_profile.get('name', 'User')}. You have access to their complete activity data.
-
-USER PROFILE:
-- Age: {safe_format(user_profile.get('age'))}, Gender: {safe_format(user_profile.get('gender'))}
-- Current Weight: {safe_format(user_profile.get('weight'))}kg, Target: {safe_format(user_profile.get('target_weight'))}kg
-- Primary Goal: {safe_format(user_profile.get('primary_goal'))}
-- Activity Level: {safe_format(user_profile.get('activity_level'))}
-- TDEE: {safe_format(user_profile.get('tdee'))} calories
-- Preferred Workouts: {', '.join(user_profile.get('preferred_workouts', [])) or 'Not specified'}
-- Dietary Preferences: {', '.join(user_profile.get('dietary_preferences', [])) or 'None specified'}
-
-TODAY'S PROGRESS ({today_progress.get('date')}):
-📊 NUTRITION:
-- Meals Logged: {len(today_progress.get('meals', []))} meals
-- Calories: {today_progress.get('total_calories')} / {goals_progress.get('daily_calorie_goal')} ({calorie_completion:.0f}% complete)
-- Protein: {today_progress.get('total_protein')}g, Carbs: {today_progress.get('total_carbs')}g, Fat: {today_progress.get('total_fat')}g
-
-💧 HYDRATION:
-- Water: {today_progress.get('water_glasses')} / {goals_progress.get('water_goal_glasses')} glasses ({water_completion:.0f}% complete)
-
-🏃 ACTIVITY:
-- Exercise: {today_progress.get('exercise_minutes')} minutes
-- Exercises: {', '.join(today_progress.get('exercises_done', [])) if today_progress.get('exercises_done') else 'None logged'}
-- Steps: {safe_format(today_progress.get('steps'), '{:,}')} / {safe_format(goals_progress.get('step_goal'), '{:,}')} ({step_completion:.0f}% complete)
-
-😴 SLEEP:
-- Last Night: {today_progress.get('sleep_hours')} hours
-- Quality: {today_progress.get('sleep_quality')}
-
-⚖️ WEIGHT:
-- Today's Weight: {'Logged - ' + str(today_progress.get('weight_logged')) + 'kg' if today_progress.get('weight_logged') else 'Not logged'}
-
-WEEKLY TRENDS:
-- Average Daily Calories: {safe_format(weekly_summary.get('avg_daily_calories'))}
-- Total Workouts: {weekly_summary.get('total_workouts')}
-- Average Sleep: {safe_format(weekly_summary.get('avg_sleep_hours'))} hours
-- Weight Trend: {weekly_summary.get('weight_trend')}
-
-COACHING INSTRUCTIONS:
-1. Always reference their actual logged data when giving advice
-2. Be specific about what they've accomplished today and what's left to do
-3. Provide encouragement based on their progress percentages
-4. Suggest specific next actions based on incomplete activities
-5. Keep responses conversational, supportive, and actionable
-6. If they haven't logged certain activities, gently remind them to do so
-7. Use their name ({user_profile.get('name')}) occasionally to personalize responses
-
-Remember: You can see all their logged activities, so be specific and reference their actual data."""
-        
-        return prompt.strip()
+        return prompt
     
     async def generate_chat_response(self, user_id: str, message: str) -> str:
         """Generate chat response with message persistence"""
