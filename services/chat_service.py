@@ -430,17 +430,30 @@ class HealthChatService:
         user_profile = context.get('user_profile', {})
         today_progress = context.get('today_progress', {})
         
-        # Get the actual values from the context
-        meals_logged = today_progress.get('meals_logged', 0)
-        total_calories = today_progress.get('totals', {}).get('calories', 0)
-        total_protein = today_progress.get('totals', {}).get('protein', 0)
-        total_carbs = today_progress.get('totals', {}).get('carbs', 0)
-        total_fat = today_progress.get('totals', {}).get('fat', 0)
+        # Check which structure we have
+        if 'totals' in today_progress:
+            # Enhanced context structure
+            meals_logged = today_progress.get('meals_logged', 0)
+            total_calories = today_progress.get('totals', {}).get('calories', 0)
+            total_protein = today_progress.get('totals', {}).get('protein', 0)
+            total_carbs = today_progress.get('totals', {}).get('carbs', 0)
+            total_fat = today_progress.get('totals', {}).get('fat', 0)
+        else:
+            # Regular context structure
+            meals_logged = today_progress.get('meals_logged', 0)
+            total_calories = today_progress.get('total_calories', 0)
+            total_protein = today_progress.get('total_protein', 0)
+            total_carbs = today_progress.get('total_carbs', 0)
+            total_fat = today_progress.get('total_fat', 0)
         
         water_glasses = today_progress.get('water_glasses', 0)
         steps = today_progress.get('steps', 0)
         exercise_minutes = today_progress.get('exercise_minutes', 0)
+        
+        # Handle exercises_done - could be a number or list
         exercises_done = today_progress.get('exercises_done', 0)
+        if isinstance(exercises_done, list):
+            exercises_done = len(exercises_done)
         
         # Build the prompt with the ACTUAL data
         prompt = f"""You are a personalized AI health coach. 
@@ -475,9 +488,12 @@ class HealthChatService:
                 print(f"⚠️ Error saving user message: {e}")
             
             # Get comprehensive user context with today's activities
-            user_context = await self.get_user_context(user_id)
+            user_context = await self.get_enhanced_context(user_id)
             print(f"📊 User context retrieved: {bool(user_context)}")
             
+            # Debug: Print the actual context structure
+            print(f"📊 Context structure: {json.dumps(user_context.get('today_progress', {}), indent=2)}")
+
             # Get recent messages
             recent_messages = []
             try:

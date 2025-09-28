@@ -454,37 +454,6 @@ class ChatContextManager:
         except Exception as e:
             print(f"Error rebuilding context: {e}")
             raise
-    
-    async def generate_fresh_context(self, user_id: str, target_date: date) -> Dict[str, Any]:
-        """Generate fresh context from source tables (fallback)"""
-        try:
-            # Use existing context generation logic
-            from api.chat import get_user_chat_context
-            
-            context = await get_user_chat_context(user_id)
-            
-            # Save to cache for next time
-            try:
-                self.supabase_service.client.table('chat_contexts')\
-                    .upsert({
-                        'user_id': user_id,
-                        'date': str(target_date),
-                        'context_data': context,
-                        'version': 1
-                    })\
-                    .execute()
-            except:
-                pass  # Don't fail if cache save fails
-            
-            return {
-                'context': context,
-                'version': 1,
-                'last_updated': datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            print(f"Error generating fresh context: {e}")
-            raise
 
 # Singleton instance
 _context_manager = None

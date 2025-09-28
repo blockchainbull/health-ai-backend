@@ -1,7 +1,7 @@
 # api/chat.py
 from fastapi import APIRouter, HTTPException
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Dict, Any
 from services.supabase_service import get_supabase_service
 from services.chat_context_manager import get_context_manager
 
@@ -154,3 +154,26 @@ async def fix_today_context(user_id: str):
             'success': False,
             'error': str(e)
         }
+    
+@router.post("/chat/rebuild-context")
+async def rebuild_chat_context(request: Dict[str, Any]):
+    """Rebuild chat context from source tables"""
+    try:
+        user_id = request.get('user_id')
+        date_str = request.get('date')
+        
+        target_date = datetime.strptime(date_str, '%Y-%m-%d').date() if date_str else datetime.now().date()
+        
+        from services.chat_context_manager import get_context_manager
+        context_manager = get_context_manager()
+        
+        result = await context_manager.rebuild_context(user_id, target_date)
+        
+        return {
+            "success": True,
+            "message": "Context rebuilt successfully",
+            "context": result['context']
+        }
+    except Exception as e:
+        print(f"Error rebuilding context: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
