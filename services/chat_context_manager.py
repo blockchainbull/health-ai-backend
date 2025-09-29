@@ -11,8 +11,10 @@ class ChatContextManager:
     async def get_or_create_context(self, user_id: str, target_date: date = None) -> Dict[str, Any]:
         """Get existing context or create a new one for the specified date"""
         if target_date is None:
-            target_date = datetime.now().date()
+            # For today, use the ensure_daily_context method
+            return await self.ensure_daily_context(user_id)
         
+        # For specific dates, use the existing logic
         try:
             # Try to get existing context
             response = self.supabase_service.client.table('chat_contexts')\
@@ -453,6 +455,43 @@ class ChatContextManager:
             
         except Exception as e:
             print(f"Error rebuilding context: {e}")
+            raise
+
+    async def ensure_daily_context(self, user_id: str) -> Dict[str, Any]:
+        """Ensure we have a fresh context for today, creating if needed"""
+        today = datetime.now().date()
+        
+        try:
+            # Check if we have a context for today
+            response = self.supabase_service.client.table('chat_contexts')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('date', str(today))\
+                .execute()
+            
+            if response.data:
+                # Context exists for today - but check if it needs updating
+                context_data = response.data[0]
+                last_updated = datetime.fromisoformat(context_data['last_updated'])
+                
+                # If context is more than an hour old, refresh it
+                if (datetime.now() - last_updated).total_seconds() > 3600:
+                    print(f"📅 Refreshing stale context for {user_id}")
+                    return await self.generate_fresh_context(user_id, today)
+                
+                return {
+                    'context': context_data['context_data'],
+                    'version': context_data['version'],
+                    'last_updated': context_data['last_updated'],
+                    'is_new': False
+                }
+            
+            # No context for today - generate from actual data
+            print(f"📅 Creating new daily context for {user_id} on {today}")
+            return await self.generate_fresh_context(user_id, today)  # Use this instead
+            
+        except Exception as e:
+            print(f"Error ensuring daily context: {e}")
             raise
 
 # Singleton instance

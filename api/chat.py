@@ -177,3 +177,58 @@ async def rebuild_chat_context(request: Dict[str, Any]):
     except Exception as e:
         print(f"Error rebuilding context: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/chat/context/check/{user_id}")
+async def check_context_date(user_id: str):
+    """Check if context needs daily reset"""
+    try:
+        from services.chat_context_manager import get_context_manager
+        context_manager = get_context_manager()
+        
+        today = datetime.now().date()
+        
+        # Check for existing context
+        response = context_manager.supabase_service.client.table('chat_contexts')\
+            .select('date')\
+            .eq('user_id', user_id)\
+            .order('date', desc=True)\
+            .limit(1)\
+            .execute()
+        
+        if response.data:
+            last_context_date = datetime.strptime(response.data[0]['date'], '%Y-%m-%d').date()
+            needs_reset = last_context_date < today
+            
+            return {
+                "needs_reset": needs_reset,
+                "last_context_date": str(last_context_date),
+                "current_date": str(today)
+            }
+        
+        return {
+            "needs_reset": True,
+            "last_context_date": None,
+            "current_date": str(today)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/chat/context/daily-reset/{user_id}")
+async def daily_context_reset(user_id: str):
+    """Create fresh context for a new day"""
+    try:
+        from services.chat_context_manager import get_context_manager
+        context_manager = get_context_manager()
+        
+        result = await context_manager.ensure_daily_context(user_id)
+        
+        return {
+            "success": True,
+            "is_new": result.get('is_new', False),
+            "date": str(datetime.now().date()),
+            "message": "Daily context ready"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
