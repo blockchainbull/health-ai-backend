@@ -1,5 +1,5 @@
 # api/meals.py
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional
 from datetime import datetime
 import uuid
@@ -12,11 +12,12 @@ from models.meal_schemas import (
 from services.supabase_service import get_supabase_service
 from services.meal_analysis_service import get_meal_analysis_service
 from services.chat_context_manager import get_context_manager
+from utils.timezone_utils import get_timezone_offset, get_user_date, get_user_today, get_user_now
 
 router = APIRouter()
 
 @router.post("/analyze", response_model=MealEntryResponse)
-async def analyze_meal(request: MealAnalysisRequest):
+async def analyze_meal(request: MealAnalysisRequest, tz_offset: int = Depends(get_timezone_offset)):
     """Analyze meal using smart parser for multi-food support"""
     try:
         print(f"🍽️ Analyzing meal for user {request.user_id}: {request.food_item}")
@@ -89,7 +90,8 @@ async def analyze_meal(request: MealAnalysisRequest):
             supabase_service, 
             request.user_id, 
             meal_entry['meal_date'],
-            nutrition_data
+            nutrition_data,
+            tz_offset
         )
         
         # Return response
@@ -274,11 +276,18 @@ async def meals_health_check():
         "timestamp": datetime.now()
     }
 
-async def update_daily_nutrition(supabase_service, user_id: str, meal_date: str, nutrition_data: dict):
+async def update_daily_nutrition(supabase_service, user_id: str, meal_date: str, nutrition_data: dict, timezone_offset: int = 0):
     """Update daily nutrition summary in daily_nutrition table"""
     try:
-        # Extract just the date part (YYYY-MM-DD)
-        date_only = meal_date.split('T')[0]
+        from utils.timezone_utils import get_user_date, get_user_now
+        
+        # Extract date in user's timezone
+        if 'T' in meal_date:
+            # It's a datetime string - convert to user's local date
+            date_only = str(get_user_date(meal_date, timezone_offset))
+        else:
+            # Already a date string
+            date_only = meal_date
         
         # Get existing daily nutrition
         existing = await supabase_service.get_daily_nutrition(user_id, date_only)
@@ -294,7 +303,7 @@ async def update_daily_nutrition(supabase_service, user_id: str, meal_date: str,
                 'sugar_g': round(float(existing.get('sugar_g', 0)) + float(nutrition_data.get('sugar_g', 0)), 1),
                 'sodium_mg': int(float(existing.get('sodium_mg', 0)) + float(nutrition_data.get('sodium_mg', 0))),
                 'meals_logged': int(existing.get('meals_logged', 0)) + 1,
-                'updated_at': datetime.now().isoformat()
+                'updated_at': get_user_now(timezone_offset).isoformat()
             }
             await supabase_service.update_daily_nutrition(existing['id'], updated_data)
             print(f"✅ Updated daily nutrition for {user_id} on {date_only}")
@@ -312,15 +321,14 @@ async def update_daily_nutrition(supabase_service, user_id: str, meal_date: str,
                 'sodium_mg': int(float(nutrition_data.get('sodium_mg', 0))),
                 'meals_logged': 1,
                 'calorie_goal': 2000,  # Default or calculate based on user profile
-                'created_at': datetime.now().isoformat(),
-                'updated_at': datetime.now().isoformat()
+                'created_at': get_user_now(timezone_offset).isoformat(),
+                'updated_at': get_user_now(timezone_offset).isoformat()
             }
             await supabase_service.create_daily_nutrition(new_data)
             print(f"✅ Created daily nutrition for {user_id} on {date_only}")
             
     except Exception as e:
         print(f"❌ Error updating daily nutrition: {e}")
-        # Don't fail the entire meal logging if daily nutrition update fails
         import traceback
         traceback.print_exc()
 

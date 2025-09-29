@@ -437,25 +437,412 @@ class ChatContextManager:
             traceback.print_exc()
             raise
     
-    async def rebuild_context(self, user_id: str, target_date: date = None) -> Dict[str, Any]:
-        """Rebuild context from source tables (for fixing sync issues)"""
-        if target_date is None:
-            target_date = datetime.now().date()
+    async def rebuild_context(self, user_id: str, target_date: date) -> Dict[str, Any]:
+        """Rebuild context from scratch with all daily activities"""
+        try:
+            print(f"🔄 Rebuilding context for {user_id} on {target_date}")
+            
+            # Get user profile
+            user = await self.supabase_service.get_user(user_id)
+            if not user:
+                raise ValueError(f"User {user_id} not found")
+            
+            # Fetch ALL activities for the target date
+            activities = await self._fetch_all_daily_activities(user_id, target_date)
+            
+            # Process meals
+            meals = activities.get('meals', [])
+            total_calories = sum(m.get('calories', 0) for m in meals)
+            total_protein = sum(m.get('protein_g', 0) for m in meals)
+            total_carbs = sum(m.get('carbs_g', 0) for m in meals)
+            total_fat = sum(m.get('fat_g', 0) for m in meals)
+            total_fiber = sum(m.get('fiber_g', 0) for m in meals)
+            total_sugar = sum(m.get('sugar_g', 0) for m in meals)
+            total_sodium = sum(m.get('sodium_mg', 0) for m in meals)
+            
+            # Format meals for context
+            formatted_meals = []
+            for meal in meals:
+                formatted_meals.append({
+                    'id': meal.get('id'),
+                    'food_item': meal.get('food_item'),
+                    'meal_type': meal.get('meal_type'),
+                    'calories': meal.get('calories', 0),
+                    'protein_g': meal.get('protein_g', 0),
+                    'carbs_g': meal.get('carbs_g', 0),
+                    'fat_g': meal.get('fat_g', 0),
+                    'fiber_g': meal.get('fiber_g', 0),
+                    'sugar_g': meal.get('sugar_g', 0),
+                    'sodium_mg': meal.get('sodium_mg', 0),
+                    'logged_at': meal.get('created_at', datetime.now().isoformat())
+                })
+            
+            # Process exercises
+            exercises = activities.get('exercise', [])
+            total_exercise_minutes = sum(
+                ex.get('duration_minutes', 0) if ex.get('duration_minutes') else 0 
+                for ex in exercises
+            )
+            
+            formatted_exercises = []
+            for ex in exercises:
+                formatted_exercises.append({
+                    'id': ex.get('id'),
+                    'exercise_name': ex.get('exercise_name'),
+                    'exercise_type': ex.get('exercise_type'),
+                    'muscle_group': ex.get('muscle_group'),
+                    'duration_minutes': ex.get('duration_minutes', 0),
+                    'calories_burned': ex.get('calories_burned', 0),
+                    'sets': ex.get('sets'),
+                    'reps': ex.get('reps'),
+                    'weight_kg': ex.get('weight_kg'),
+                    'logged_at': ex.get('created_at', datetime.now().isoformat())
+                })
+            
+            # Get other activities - YES, this will work!
+            water = activities.get('water', {})
+            steps = activities.get('steps', {})
+            weight = activities.get('weight', {})
+            sleep = activities.get('sleep', {})
+            supplements = activities.get('supplements', {})
+            
+            # Build the complete context
+            context = {
+                'user_profile': {
+                    'id': user_id,
+                    'name': user.get('name', ''),
+                    'age': user.get('age'),
+                    'weight': user.get('weight'),
+                    'height': user.get('height'),
+                    'primary_goal': user.get('primary_goal'),
+                    'weight_goal': user.get('weight_goal'),
+                    'target_weight': user.get('target_weight'),
+                    'activity_level': user.get('activity_level'),
+                    'tdee': user.get('tdee'),
+                    'gender': user.get('gender'),
+                    'preferred_workouts': user.get('preferred_workouts', []),
+                    'dietary_preferences': user.get('dietary_preferences', []),
+                },
+                'today_progress': {
+                    'date': str(target_date),
+                    'meals': formatted_meals,
+                    'meals_logged': len(formatted_meals),
+                    'total_calories': total_calories,
+                    'total_protein': total_protein,
+                    'total_carbs': total_carbs,
+                    'total_fat': total_fat,
+                    'total_fiber': total_fiber,
+                    'total_sugar': total_sugar,
+                    'total_sodium': total_sodium,
+                    'exercises': formatted_exercises,
+                    'exercises_done': len(formatted_exercises),
+                    'exercise_minutes': total_exercise_minutes,
+                    'water_glasses': water.get('glasses_consumed', 0),
+                    'water_ml': water.get('total_ml', 0),
+                    'steps': steps.get('steps', 0),
+                    'weight': weight.get('weight') if weight else None,
+                    'sleep_hours': sleep.get('total_hours', 0) if sleep else None,
+                    'supplements_taken': self._get_supplements_taken(supplements),
+                    'totals': {
+                        'calories': total_calories,
+                        'protein': total_protein,
+                        'carbs': total_carbs,
+                        'fat': total_fat,
+                        'fiber': total_fiber,
+                        'sugar': total_sugar,
+                        'sodium': total_sodium
+                    }
+                },
+                'weekly_summary': await self._get_weekly_summary(user_id, target_date),
+                'goals_progress': {
+                    'daily_calorie_goal': user.get('tdee', 2000),
+                    'water_goal_glasses': user.get('water_intake_glasses', 8),
+                    'step_goal': user.get('daily_step_goal', 10000),
+                    'weight_progress': {
+                        'current': user.get('weight'),
+                        'target': user.get('target_weight'),
+                        'status': self._calculate_weight_status(
+                            user.get('weight'), 
+                            user.get('target_weight')
+                        )
+                    }
+                },
+                'context_metadata': {
+                    'last_updated': datetime.now().isoformat(),
+                    'version': 1,
+                    'rebuild_reason': 'manual_rebuild'
+                }
+            }
+            
+            # Save the rebuilt context
+            await self._save_context(user_id, target_date, context, 1)
+            
+            print(f"✅ Context rebuilt with {len(formatted_meals)} meals, "
+                  f"{len(formatted_exercises)} exercises, and other activities")
+            
+            return {
+                'context': context,
+                'version': 1,
+                'last_updated': datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            print(f"❌ Error rebuilding context: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+
+    async def _fetch_all_daily_activities(self, user_id: str, target_date: date) -> dict:
+        """Fetch all activities for a specific date - COMPLETE IMPLEMENTATION"""
+        activities = {}
         
         try:
-            # Delete existing context
-            self.supabase_service.client.table('chat_contexts')\
-                .delete()\
+            # Get meals - use correct column name 'meal_date'
+            meals_response = self.supabase_service.client.table('meal_entries')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('meal_date', str(target_date))\
+                .execute()
+            activities['meals'] = meals_response.data if meals_response.data else []
+            print(f"  📋 Found {len(activities['meals'])} meals")
+        except Exception as e:
+            print(f"⚠️ Error fetching meals: {e}")
+            activities['meals'] = []
+        
+        try:
+            # Get water intake
+            water_response = self.supabase_service.client.table('daily_water')\
+                .select('*')\
                 .eq('user_id', user_id)\
                 .eq('date', str(target_date))\
                 .execute()
+            activities['water'] = water_response.data[0] if water_response.data else {}
+            print(f"  💧 Water: {activities['water'].get('glasses_consumed', 0)} glasses")
+        except Exception as e:
+            print(f"⚠️ Error fetching water: {e}")
+            activities['water'] = {}
+        
+        try:
+            # Get exercises
+            exercise_response = self.supabase_service.client.table('exercise_logs')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('exercise_date', str(target_date))\
+                .execute()
+            activities['exercise'] = exercise_response.data if exercise_response.data else []
+            print(f"  💪 Found {len(activities['exercise'])} exercises")
+        except Exception as e:
+            print(f"⚠️ Error fetching exercise: {e}")
+            activities['exercise'] = []
+        
+        try:
+            # Get steps
+            steps_response = self.supabase_service.client.table('daily_steps')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('date', str(target_date))\
+                .execute()
+            activities['steps'] = steps_response.data[0] if steps_response.data else {}
+            print(f"  👣 Steps: {activities['steps'].get('steps', 0)}")
+        except Exception as e:
+            print(f"⚠️ Error fetching steps: {e}")
+            activities['steps'] = {}
+        
+        try:
+            # Get sleep
+            sleep_response = self.supabase_service.client.table('sleep_entries')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('date', str(target_date))\
+                .execute()
+            activities['sleep'] = sleep_response.data[0] if sleep_response.data else {}
+            print(f"  😴 Sleep: {activities['sleep'].get('total_hours', 0)} hours")
+        except Exception as e:
+            print(f"⚠️ Error fetching sleep: {e}")
+            activities['sleep'] = {}
+        
+        try:
+            # Get weight
+            weight_response = self.supabase_service.client.table('weight_entries')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('date', str(target_date))\
+                .execute()
+            activities['weight'] = weight_response.data[0] if weight_response.data else {}
+            print(f"  ⚖️ Weight: {activities['weight'].get('weight', 'Not logged')} kg")
+        except Exception as e:
+            print(f"⚠️ Error fetching weight: {e}")
+            activities['weight'] = {}
+        
+        try:
+            # Get supplements
+            activities['supplements'] = await self.supabase_service.get_supplement_status_by_date(
+                user_id, target_date
+            )
+            print(f"  💊 Supplements logged")
+        except Exception as e:
+            print(f"⚠️ Error fetching supplements: {e}")
+            activities['supplements'] = {}
+        
+        try:
+            # Get period data (for female users)
+            period_response = self.supabase_service.client.table('period_entries')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('date', str(target_date))\
+                .execute()
+            activities['period'] = period_response.data[0] if period_response.data else {}
+        except Exception as e:
+            # Silent fail for period data (not all users need this)
+            activities['period'] = {}
+        
+        return activities
+    
+    def _get_supplements_taken(self, supplements_data: Any) -> List[str]:
+        """Extract list of supplements taken from supplements data"""
+        if not supplements_data:
+            return []
+        
+        taken = []
+        if isinstance(supplements_data, dict):
+            # If it's the status format from get_supplement_status_by_date
+            for supp_name, supp_data in supplements_data.items():
+                if isinstance(supp_data, dict) and supp_data.get('taken'):
+                    taken.append(supp_name)
+        elif isinstance(supplements_data, list):
+            # If it's a list of supplement logs
+            for supp in supplements_data:
+                if supp.get('taken'):
+                    taken.append(supp.get('supplement_name', ''))
+        
+        return taken
+
+    async def _get_weekly_summary(self, user_id: str, target_date: date) -> Dict[str, Any]:
+        """Get weekly summary statistics"""
+        try:
+            # Calculate date range for past 7 days
+            end_date = target_date
+            start_date = end_date - timedelta(days=6)
             
-            # Generate fresh context with ACTUAL DATA
-            return await self.generate_fresh_context(user_id, target_date)
+            # Initialize summary
+            summary = {
+                'avg_daily_calories': 0,
+                'total_workouts': 0,
+                'avg_sleep_hours': 0,
+                'weight_trend': 'unknown',
+                'hydration_consistency': 0,
+                'workout_streak': 0
+            }
+            
+            # Fetch data for the week
+            total_calories = 0
+            days_with_meals = 0
+            total_sleep = 0
+            days_with_sleep = 0
+            days_with_water = 0
+            workout_days = set()
+            
+            for i in range(7):
+                check_date = start_date + timedelta(days=i)
+                
+                # Get meals for calorie average
+                meals = await self.supabase_service.get_meals_by_date(user_id, check_date)
+                if meals:
+                    daily_calories = sum(m.get('calories', 0) for m in meals)
+                    if daily_calories > 0:
+                        total_calories += daily_calories
+                        days_with_meals += 1
+                
+                # Get sleep
+                sleep = await self.supabase_service.get_sleep_by_date(user_id, check_date)
+                if sleep and sleep.get('total_hours'):
+                    total_sleep += sleep['total_hours']
+                    days_with_sleep += 1
+                
+                # Get water
+                water = await self.supabase_service.get_water_by_date(user_id, check_date)
+                if water and water.get('glasses_consumed', 0) > 0:
+                    days_with_water += 1
+                
+                # Get exercise
+                exercises = await self.supabase_service.get_exercises_by_date(user_id, check_date)
+                if exercises:
+                    workout_days.add(str(check_date))
+            
+            # Calculate averages
+            summary['avg_daily_calories'] = round(total_calories / days_with_meals) if days_with_meals > 0 else 0
+            summary['total_workouts'] = len(workout_days)
+            summary['avg_sleep_hours'] = round(total_sleep / days_with_sleep, 1) if days_with_sleep > 0 else 0
+            summary['hydration_consistency'] = round((days_with_water / 7) * 100)
+            
+            # Get weight trend
+            weight_entries = await self.supabase_service.get_weight_entries(
+                user_id, 
+                start_date=str(start_date),
+                end_date=str(end_date)
+            )
+            summary['weight_trend'] = self._calculate_weight_trend(weight_entries)
+            
+            return summary
             
         except Exception as e:
-            print(f"Error rebuilding context: {e}")
-            raise
+            print(f"⚠️ Error getting weekly summary: {e}")
+            return {
+                'avg_daily_calories': 0,
+                'total_workouts': 0,
+                'avg_sleep_hours': 0,
+                'weight_trend': 'unknown'
+            }
+
+    def _calculate_weight_status(self, current: float, target: float) -> str:
+        """Calculate weight progress status"""
+        if not current or not target:
+            return 'no_data'
+        
+        diff = abs(current - target)
+        if diff < 0.5:
+            return 'at_goal'
+        elif current > target:
+            return f'lose_{diff:.1f}kg'
+        else:
+            return f'gain_{diff:.1f}kg'
+
+    def _calculate_weight_trend(self, weight_entries: List[Dict]) -> str:
+        """Calculate weight trend from entries"""
+        if len(weight_entries) < 2:
+            return 'insufficient_data'
+        
+        # Sort by date
+        sorted_entries = sorted(weight_entries, key=lambda x: x.get('date', ''))
+        
+        if len(sorted_entries) >= 2:
+            first_weight = sorted_entries[0].get('weight', 0)
+            last_weight = sorted_entries[-1].get('weight', 0)
+            change = last_weight - first_weight
+            
+            if abs(change) < 0.2:
+                return 'stable'
+            elif change > 0:
+                return f'gaining_{abs(change):.1f}kg'
+            else:
+                return f'losing_{abs(change):.1f}kg'
+        
+        return 'insufficient_data'
+
+    async def _save_context(self, user_id: str, target_date: date, context: Dict, version: int):
+        """Save context to database"""
+        try:
+            self.supabase_service.client.table('chat_contexts')\
+                .upsert({
+                    'user_id': user_id,
+                    'date': str(target_date),
+                    'context_data': context,
+                    'version': version,
+                    'last_updated': datetime.now().isoformat()
+                })\
+                .execute()
+        except Exception as e:
+            print(f"⚠️ Error saving context: {e}")
 
     async def ensure_daily_context(self, user_id: str) -> Dict[str, Any]:
         """Ensure we have a fresh context for today, creating if needed"""
