@@ -18,7 +18,7 @@ router = APIRouter()
 
 @router.post("/analyze", response_model=MealEntryResponse)
 async def analyze_meal(request: MealAnalysisRequest, tz_offset: int = Depends(get_timezone_offset)):
-    """Analyze meal using smart parser for multi-food support"""
+    """Analyze meal using smart parser with CACHING"""
     try:
         print(f"🍽️ Analyzing meal for user {request.user_id}: {request.food_item}")
         
@@ -39,16 +39,21 @@ async def analyze_meal(request: MealAnalysisRequest, tz_offset: int = Depends(ge
             'tdee': user.get('tdee', 2000)
         }
         
-        nutrition_data = await analysis_service.analyze_meal(
+        nutrition_data = await analysis_service.analyze_meal_with_cache(
             food_item=request.food_item,
             quantity=request.quantity,
             user_context=user_context,
+            user_id=request.user_id, 
             preparation=request.preparation
         )
         
         # Store components if it's a multi-food meal
         if nutrition_data.get('components'):
             print(f"✅ Analyzed {len(nutrition_data['components'])} food items")
+
+        if not nutrition_data.get('data_source'):
+            print(f"⚠️ WARNING: No data_source set for meal analysis!")
+            nutrition_data['data_source'] = 'unknown'
         
         # Prepare meal entry data
         meal_entry = {
@@ -66,7 +71,9 @@ async def analyze_meal(request: MealAnalysisRequest, tz_offset: int = Depends(ge
             'sugar_g': nutrition_data['sugar_g'],
             'sodium_mg': nutrition_data['sodium_mg'],
             'nutrition_data': nutrition_data,
-            'data_source': nutrition_data.get('data_source', 'ai'),
+            'data_source': nutrition_data.get['data_source'],
+            'search_hash': nutrition_data.get('search_hash'),
+            'is_cached_source': nutrition_data.get('data_source') == 'cached',
             'confidence_score': nutrition_data.get('confidence_score', 0.8),
             'meal_date': request.meal_date or datetime.now().isoformat(),
             'logged_at': datetime.now().isoformat(),
@@ -331,6 +338,142 @@ async def update_daily_nutrition(supabase_service, user_id: str, meal_date: str,
         print(f"❌ Error updating daily nutrition: {e}")
         import traceback
         traceback.print_exc()
+
+@router.post("/presets/create")
+async def create_meal_preset(preset_data: dict):
+    """Create a meal preset from logged meals"""
+    try:
+        supabase_service = get_supabase_service()
+        
+        preset = {
+            'id': str(uuid.uuid4()),
+            'user_id': preset_data['user_id'],
+            'preset_name': preset_data['preset_name'],
+            'description': preset_data.get('description'),
+            'food_items': preset_data['food_items'],  # Array of items
+            'meal_type': preset_data.get('meal_type'),
+            'total_calories': preset_data['total_calories'],
+            'total_protein_g': preset_data['total_protein_g'],
+            'total_carbs_g': preset_data['total_carbs_g'],
+            'total_fat_g': preset_data['total_fat_g'],
+            'total_fiber_g': preset_data.get('total_fiber_g', 0),
+            'total_sugar_g': preset_data.get('total_sugar_g', 0),
+            'total_sodium_mg': preset_data.get('total_sodium_mg', 0),
+            'is_favorite': preset_data.get('is_favorite', False),
+            'created_at': datetime.now().isoformat(),
+            'updated_at': datetime.now().isoformat()
+        }
+        
+        created = await supabase_service.create_meal_preset(preset)
+        return {"success": True, "preset": created}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/presets/{user_id}")
+async def get_meal_presets(user_id: str):
+    """Get all meal presets for a user"""
+    try:
+        supabase_service = get_supabase_service()
+        presets = await supabase_service.get_user_meal_presets(user_id)
+        return {"success": True, "presets": presets}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/presets/{preset_id}/use")
+async def use_meal_preset(preset_id: str, data: dict):
+    """Log meals from a preset"""
+    try:
+        supabase_service = get_supabase_service()
+        context_manager = get_context_manager()
+        
+        # Get the preset
+        response = supabase_service.client.table('meal_presets')\
+            .select('*')\
+            .eq('id', preset_id)\
+            .execute()
+        
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Preset not found")
+        
+        preset = response.data[0]
+        
+        # Create meal entry from preset
+        meal_entry = {
+            'id': str(uuid.uuid4()),
+            'user_id': preset['user_id'],
+            'food_item': preset['preset_name'],
+            'quantity': '1 serving',
+            'meal_type': data.get('meal_type', preset.get('meal_type', 'snack')),
+            'calories': preset['total_calories'],
+            'protein_g': preset['total_protein_g'],
+            'carbs_g': preset['total_carbs_g'],
+            'fat_g': preset['total_fat_g'],
+            'fiber_g': preset.get('total_fiber_g', 0),
+            'sugar_g': preset.get('total_sugar_g', 0),
+            'sodium_mg': preset.get('total_sodium_mg', 0),
+            'nutrition_data': {
+                'from_preset': True,
+                'preset_id': preset_id,
+                'food_items': preset['food_items']
+            },
+            'data_source': 'preset',
+            'meal_date': data.get('meal_date', datetime.now().isoformat()),
+            'logged_at': datetime.now().isoformat(),
+            'updated_at': datetime.now().isoformat()
+        }
+        
+        # Save meal
+        saved = await supabase_service.create_meal_entry(meal_entry)
+        
+        # Update preset usage
+        await supabase_service.update_preset_usage(preset_id)
+
+        await context_manager.update_context_activity(
+            user_id=preset['user_id'],
+            activity_type='meal',
+            data={
+                'id': saved['id'],
+                'food_item': preset['preset_name'],
+                'meal_type': data.get('meal_type', preset.get('meal_type', 'snack')),
+                'calories': saved['calories'],
+                'protein_g': saved['protein_g'],
+                'carbs_g': saved['carbs_g'],
+                'fat_g': saved['fat_g'],
+                'fiber_g': saved.get('fiber_g', 0),
+                'sugar_g': saved.get('sugar_g', 0),
+                'sodium_mg': saved.get('sodium_mg', 0),
+                'created_at': saved['logged_at'],
+                'data_source': 'preset',
+                'preset_id': preset_id
+            }
+        )
+
+        return {"success": True, "meal": saved}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/suggestions/{user_id}")
+async def get_meal_suggestions(user_id: str):
+    """Get meal suggestions from history and presets"""
+    try:
+        supabase_service = get_supabase_service()
+        
+        # Get recent unique meals
+        recent_meals = await supabase_service.get_recent_unique_meals(user_id)
+        
+        # Get top presets
+        presets = await supabase_service.get_user_meal_presets(user_id)
+        top_presets = presets[:5] if presets else []
+        
+        return {
+            "success": True,
+            "recent_meals": recent_meals,
+            "presets": top_presets
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 def calculate_calorie_goal(user_profile: dict) -> int:
     """Calculate daily calorie goal based on user's TDEE and weight goal"""

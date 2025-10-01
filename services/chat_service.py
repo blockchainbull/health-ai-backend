@@ -30,7 +30,8 @@ class HealthChatService:
             meals_response = self.supabase_service.client.table('meal_entries')\
                 .select('*')\
                 .eq('user_id', user_id)\
-                .eq('meal_date', str(target_date))\
+                .gte('meal_date', f"{target_date}T00:00:00")\
+                .lte('meal_date', f"{target_date}T23:59:59")\
                 .execute()
             activities['meals'] = meals_response.data if meals_response.data else []
         except Exception as e:

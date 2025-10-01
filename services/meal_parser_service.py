@@ -316,6 +316,95 @@ class MealParserService:
                 return components
         
         return [(meal_input, default_quantity or "1 serving")]
+    
+    async def parse_and_analyze_meal_with_cache(
+    self,
+    meal_input: str,
+    default_quantity: str,
+    user_context: Dict[str, Any],
+    user_id: str,
+    meal_type: str = "snack"
+) -> Dict[str, Any]:
+        """
+        Parse and analyze meal with caching support
+        """
+        
+        # First check if the entire meal string is cached
+        from services.supabase_service import get_supabase_service
+        supabase = get_supabase_service()
+        
+        cached_meal = await supabase.search_cached_meal(user_id, meal_input, default_quantity)
+        
+        if cached_meal and cached_meal.get('nutrition_data'):
+            print(f"🎯 Using cached data for entire meal: {meal_input}")
+            nutrition_data = cached_meal['nutrition_data']
+            nutrition_data['data_source'] = 'cached'
+            nutrition_data['cached_from_date'] = cached_meal.get('logged_at')
+            return nutrition_data
+        
+        # Not cached, proceed with parsing
+        print(f"🍽️ Parsing meal input: '{meal_input}'")
+        
+        # Parse into components
+        food_items = self._parse_food_items(meal_input, default_quantity)
+        
+        if len(food_items) == 1:
+            # Single item - use cached analysis
+            food, quantity = food_items[0]
+            return await self.meal_service.analyze_meal_with_cache(
+                food_item=food,
+                quantity=quantity,
+                user_context=user_context,
+                user_id=user_id
+            )
+        
+        # Multiple items - analyze each with cache
+        print(f"📦 Found {len(food_items)} items to analyze")
+        
+        components = []
+        total_nutrition = {
+            'calories': 0, 'protein_g': 0, 'carbs_g': 0,
+            'fat_g': 0, 'fiber_g': 0, 'sugar_g': 0, 'sodium_mg': 0
+        }
+        
+        for food, quantity in food_items:
+            # Each component can use cache
+            component_nutrition = await self.meal_service.analyze_meal_with_cache(
+                food_item=food,
+                quantity=quantity,
+                user_context=user_context,
+                user_id=user_id
+            )
+            
+            components.append({
+                'food': food,
+                'quantity': quantity,
+                'nutrition': component_nutrition
+            })
+            
+            # Aggregate nutrition
+            for key in total_nutrition:
+                if key in component_nutrition:
+                    total_nutrition[key] += component_nutrition[key]
+        
+        # Generate hash for the complete meal
+        import hashlib
+        search_hash = hashlib.md5(
+            f"{meal_input.lower().strip()}::{default_quantity.lower().strip()}".encode()
+        ).hexdigest()
+        
+        # Return aggregated result
+        result = {
+            **total_nutrition,
+            'components': components,
+            'data_source': 'multi-food-parser',
+            'search_hash': search_hash,
+            'healthiness_score': 7,  # Calculate based on components
+            'suggestions': 'Balanced meal with multiple components',
+            'nutrition_notes': f'Analyzed {len(components)} food items'
+        }
+        
+        return result
 
 # Singleton pattern
 _parser_service = None

@@ -43,6 +43,48 @@ class MealAnalysisService:
         print(f"🤖 Using ChatGPT for {food_item} (complex: {is_complex})")
         return await self._chatgpt_analysis(food_item, quantity, user_context, preparation)
     
+    async def analyze_meal_with_cache(
+        self, 
+        food_item: str, 
+        quantity: str, 
+        user_context: Dict[str, Any],
+        user_id: str,
+        preparation: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Analyze meal with smart caching:
+        1. Check cache for identical previous meal
+        2. If not found, use existing analyze_meal logic
+        3. Store with search hash for future lookups
+        """
+        
+        # Try to find cached version first
+        from services.supabase_service import get_supabase_service
+        supabase = get_supabase_service()
+        
+        cached_meal = await supabase.search_cached_meal(user_id, food_item, quantity)
+        
+        if cached_meal and cached_meal.get('nutrition_data'):
+            print(f"🎯 Using cached data for {food_item}")
+            nutrition_data = cached_meal['nutrition_data']
+            nutrition_data['data_source'] = 'cached'
+            nutrition_data['cached_from_date'] = cached_meal.get('logged_at')
+            return nutrition_data
+        
+        # Not cached, proceed with normal analysis
+        print(f"🔍 No cache found, analyzing {food_item}")
+        nutrition_data = await self.analyze_meal(
+            food_item, quantity, user_context, preparation
+        )
+        
+        # Generate search hash for future lookups
+        import hashlib
+        nutrition_data['search_hash'] = hashlib.md5(
+            f"{food_item.lower().strip()}::{quantity.lower().strip()}".encode()
+        ).hexdigest()
+        
+        return nutrition_data
+    
     def _is_complex_food(self, food_item: str, preparation: Optional[str]) -> bool:
         """Determine if food requires ChatGPT analysis"""
         

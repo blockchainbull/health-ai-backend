@@ -1230,6 +1230,107 @@ class SupabaseService:
         except Exception as e:
             print(f"Error deleting water entry: {e}")
             return False
+        
+    async def create_meal_preset(self, preset_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new meal preset"""
+        try:
+            response = self.client.table('meal_presets').insert(preset_data).execute()
+            return response.data[0] if response.data else None
+        except Exception as e:
+            print(f"❌ Error creating meal preset: {e}")
+            raise
+
+    async def get_user_meal_presets(self, user_id: str) -> List[Dict[str, Any]]:
+        """Get all meal presets for a user"""
+        try:
+            response = self.client.table('meal_presets')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .order('usage_count', desc=True)\
+                .execute()
+            return response.data or []
+        except Exception as e:
+            print(f"❌ Error getting meal presets: {e}")
+            return []
+
+    async def update_preset_usage(self, preset_id: str) -> None:
+        """Increment usage count when preset is used"""
+        try:
+            # Get current count
+            response = self.client.table('meal_presets')\
+                .select('usage_count')\
+                .eq('id', preset_id)\
+                .execute()
+            
+            if response.data:
+                current_count = response.data[0].get('usage_count', 0)
+                
+                # Update count and last used timestamp
+                self.client.table('meal_presets')\
+                    .update({
+                        'usage_count': current_count + 1,
+                        'last_used_at': datetime.now().isoformat()
+                    })\
+                    .eq('id', preset_id)\
+                    .execute()
+        except Exception as e:
+            print(f"⚠️ Error updating preset usage: {e}")
+
+    async def search_cached_meal(self, user_id: str, food_item: str, quantity: str) -> Optional[Dict[str, Any]]:
+        """Search for previously logged identical meal"""
+        try:
+            import hashlib
+            # Generate consistent hash for this meal
+            search_hash = hashlib.md5(
+                f"{food_item.lower().strip()}::{quantity.lower().strip()}".encode()
+            ).hexdigest()
+            
+            # Look for recent identical meal (last 30 days)
+            thirty_days_ago = (datetime.now() - timedelta(days=30)).isoformat()
+            
+            response = self.client.table('meal_entries')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('search_hash', search_hash)\
+                .gte('logged_at', thirty_days_ago)\
+                .order('logged_at', desc=True)\
+                .limit(1)\
+                .execute()
+            
+            if response.data:
+                print(f"✅ Found cached meal: {food_item}")
+                return response.data[0]
+            return None
+        except Exception as e:
+            print(f"❌ Error searching cached meal: {e}")
+            return None
+
+    async def get_recent_unique_meals(self, user_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get recent unique meals for suggestions"""
+        try:
+            # Get recent meals with distinct food items
+            response = self.client.table('meal_entries')\
+                .select('food_item, quantity, calories, protein_g, carbs_g, fat_g, meal_type, logged_at')\
+                .eq('user_id', user_id)\
+                .order('logged_at', desc=True)\
+                .limit(50)\
+                .execute()
+            
+            # Deduplicate by food_item + quantity
+            seen = set()
+            unique_meals = []
+            for meal in response.data or []:
+                key = f"{meal['food_item']}_{meal['quantity']}"
+                if key not in seen:
+                    seen.add(key)
+                    unique_meals.append(meal)
+                    if len(unique_meals) >= limit:
+                        break
+            
+            return unique_meals
+        except Exception as e:
+            print(f"❌ Error getting recent meals: {e}")
+            return []
 
 # Global instance - we'll initialize this in main.py
 supabase_service = None

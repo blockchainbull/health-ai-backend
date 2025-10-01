@@ -91,7 +91,7 @@ class ChatContextManager:
             
             # Save to database
             response = self.supabase_service.client.table('chat_contexts')\
-                .insert({
+                .upsert({
                     'user_id': user_id,
                     'date': str(target_date),
                     'context_data': initial_context,
