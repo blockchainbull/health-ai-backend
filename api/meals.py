@@ -474,6 +474,33 @@ async def get_meal_suggestions(user_id: str):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.delete("/presets/{preset_id}")
+async def delete_meal_preset(preset_id: str):
+    """Delete a meal preset"""
+    try:
+        supabase_service = get_supabase_service()
+        
+        # Get the preset first to verify it exists
+        response = supabase_service.client.table('meal_presets')\
+            .select('*')\
+            .eq('id', preset_id)\
+            .execute()
+        
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Preset not found")
+        
+        # Delete the preset
+        delete_response = supabase_service.client.table('meal_presets')\
+            .delete()\
+            .eq('id', preset_id)\
+            .execute()
+        
+        return {"success": True, "message": "Preset deleted successfully"}
+        
+    except Exception as e:
+        print(f"❌ Error deleting preset: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 def calculate_calorie_goal(user_profile: dict) -> int:
     """Calculate daily calorie goal based on user's TDEE and weight goal"""
