@@ -1,7 +1,7 @@
 # api/meals.py
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import uuid
 
 from models.meal_schemas import (
@@ -22,6 +22,10 @@ async def analyze_meal(request: MealAnalysisRequest, tz_offset: int = Depends(ge
     try:
         print(f"🍽️ Analyzing meal for user {request.user_id}: {request.food_item}")
         
+        # user's timezone
+        user_now = datetime.utcnow + timedelta(minutes=tz_offset)
+        user_date = user_now.date()
+
         # Get services
         supabase_service = get_supabase_service()
         analysis_service = get_meal_analysis_service()
@@ -75,28 +79,27 @@ async def analyze_meal(request: MealAnalysisRequest, tz_offset: int = Depends(ge
             'search_hash': nutrition_data.get('search_hash'),
             'is_cached_source': nutrition_data.get('data_source') == 'cached',
             'confidence_score': nutrition_data.get('confidence_score', 0.8),
-            'meal_date': request.meal_date or datetime.now().isoformat(),
-            'logged_at': datetime.now().isoformat(),
-            'updated_at': datetime.now().isoformat()
+            'meal_date': request.meal_date or user_date.isoformat(),
+            'logged_at': user_now.isoformat(),
+            'updated_at': user_now.isoformat()
         }
         
         # Save to database
         saved_meal = await supabase_service.create_meal_entry(meal_entry)
         
         # Update chat context with the new meal
-        meal_date = datetime.fromisoformat(meal_entry['meal_date']).date()
         await context_manager.update_context_activity(
             request.user_id,
             'meal',
             saved_meal,
-            meal_date
+            user_date
         )
         
         # Update daily nutrition
         await update_daily_nutrition(
             supabase_service, 
             request.user_id, 
-            meal_entry['meal_date'],
+            user_date.isoformat(),
             nutrition_data,
             tz_offset
         )
