@@ -747,33 +747,56 @@ async def get_today_water(user_id: str, tz_offset: int = Depends(get_timezone_of
         print(f"❌ Error getting today's water: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     
-@router.get("/water/{user_id}")
+@router.get("/water/{user_id}/history")
 async def get_water_history(user_id: str, limit: int = 30):
-    """Get water intake history for a user"""
+    """Get water intake history"""
     try:
-        print(f"💧 Getting water history for user: {user_id}, limit: {limit}")
-        
         supabase_service = get_supabase_service()
-        entries = await supabase_service.get_water_history(user_id, limit)
-        
-        # Calculate summary statistics
-        total_days = len(entries)
-        goal_achieved_days = sum(1 for entry in entries if entry.get('total_ml', 0) >= entry.get('target_ml', 2000))
-        avg_daily_intake = sum(entry.get('total_ml', 0) for entry in entries) / max(total_days, 1)
+        entries = await supabase_service.get_water_history(user_id, limit=limit)
         
         return {
-            "success": True, 
+            "success": True,
             "entries": entries,
-            "summary": {
-                "total_days": total_days,
-                "goal_achieved_days": goal_achieved_days,
-                "goal_achievement_rate": (goal_achieved_days / max(total_days, 1)) * 100,
-                "average_daily_intake": round(avg_daily_intake, 1)
-            }
+            "count": len(entries)
         }
-        
     except Exception as e:
         print(f"❌ Error getting water history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/water/{user_id}")
+async def get_water_by_date(
+    user_id: str, 
+    date: Optional[str] = None,
+    tz_offset: int = Depends(get_timezone_offset)
+):
+    """Get water entry for a specific date"""
+    try:
+        supabase_service = get_supabase_service()
+        
+        # Parse date
+        if date:
+            try:
+                entry_date = datetime.strptime(date, '%Y-%m-%d').date()
+            except ValueError:
+                entry_date = get_user_today(tz_offset)
+        else:
+            entry_date = get_user_today(tz_offset)
+        
+        # Get entry for date
+        entry = await supabase_service.get_water_entry_by_date(user_id, entry_date)
+        
+        if entry:
+            return {
+                "success": True,
+                "entry": entry
+            }
+        else:
+            return {
+                "success": False,
+                "message": "No water entry found for this date"
+            }
+    except Exception as e:
+        print(f"❌ Error getting water by date: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     
 @router.delete("/water/{user_id}/{date}")
@@ -923,51 +946,40 @@ async def save_step_entry(step_data: StepEntryCreate, tz_offset: int = Depends(g
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/steps/{user_id}")
-async def get_all_steps(user_id: str, limit: int = 100):
-    """Get all step entries for a user"""
+async def get_steps_by_date(
+    user_id: str,
+    date: Optional[str] = None,
+    tz_offset: int = Depends(get_timezone_offset)
+):
+    """Get step entry for a specific date"""
     try:
-        print(f"🚶 Getting all steps for user: {user_id}, limit: {limit}")
-        
         supabase_service = get_supabase_service()
-        entries = await supabase_service.get_step_history(user_id, limit)
         
-        print(f"🚶 Found {len(entries)} step entries in database")
-        
-        # Calculate summary statistics
-        total_days = len(entries)
-        if total_days > 0:
-            total_steps = sum(entry.get('steps', 0) for entry in entries)
-            goal_achieved_days = sum(1 for entry in entries if entry.get('steps', 0) >= entry.get('goal', 10000))
-            avg_daily_steps = total_steps / total_days
-            best_day_steps = max(entry.get('steps', 0) for entry in entries)
+        # Parse date
+        if date:
+            try:
+                entry_date = datetime.strptime(date, '%Y-%m-%d').date()
+            except ValueError:
+                entry_date = get_user_today(tz_offset)
         else:
-            total_steps = avg_daily_steps = best_day_steps = goal_achieved_days = 0
+            entry_date = get_user_today(tz_offset)
         
-        # Log the first entry for debugging
-        if entries:
-            print(f"🚶 First entry sample: {entries[0]}")
+        entry = await supabase_service.get_step_entry_by_date(user_id, entry_date)
         
-        response_data = {
-            "success": True,
-            "entries": entries,  # Make sure this key exists
-            "summary": {
-                "total_days": total_days,
-                "total_steps": total_steps,
-                "goal_achieved_days": goal_achieved_days,
-                "goal_achievement_rate": (goal_achieved_days / max(total_days, 1)) * 100,
-                "average_daily_steps": round(avg_daily_steps),
-                "best_day_steps": best_day_steps
+        if entry:
+            return {
+                "success": True,
+                "entry": entry
             }
-        }
-        
-        print(f"🚶 Returning response with {len(entries)} entries")
-        return response_data
-        
+        else:
+            return {
+                "success": False,
+                "message": "No step entry found for this date"
+            }
     except Exception as e:
-        print(f"❌ Error getting all steps: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ Error getting steps by date: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/steps/{user_id}/today")
 async def get_today_steps(user_id: str, tz_offset: int = Depends(get_timezone_offset)):
@@ -1009,16 +1021,25 @@ async def get_today_steps(user_id: str, tz_offset: int = Depends(get_timezone_of
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/steps/{user_id}/range")
-async def get_steps_in_range(user_id: str, start_date: str, end_date: str):
-    """Get step entries within a date range"""
+async def get_steps_in_range(
+    user_id: str,
+    start: str,
+    end: str
+):
+    """Get step entries for a date range"""
     try:
-        print(f"🚶 Getting steps in range for user: {user_id}, {start_date} to {end_date}")
-        
         supabase_service = get_supabase_service()
-        entries = await supabase_service.get_step_entries_in_range(user_id, start_date, end_date)
         
-        return {"success": True, "entries": entries}
+        start_date = datetime.strptime(start, '%Y-%m-%d').date()
+        end_date = datetime.strptime(end, '%Y-%m-%d').date()
         
+        entries = await supabase_service.get_steps_in_range(user_id, start_date, end_date)
+        
+        return {
+            "success": True,
+            "entries": entries,
+            "count": len(entries)
+        }
     except Exception as e:
         print(f"❌ Error getting steps in range: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1769,6 +1790,40 @@ async def get_supplement_history(user_id: str, supplement_name: Optional[str] = 
     except Exception as e:
         print(f"❌ Error getting supplement history: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/supplements/{user_id}/history")
+async def get_supplement_history_in_range(
+    user_id: str,
+    start: str,
+    end: str
+):
+    """Get supplement history for a date range"""
+    try:
+        supabase_service = get_supabase_service()
+        
+        start_date = datetime.strptime(start, '%Y-%m-%d').date()
+        end_date = datetime.strptime(end, '%Y-%m-%d').date()
+        days = (end_date - start_date).days + 1
+        
+        history = await supabase_service.get_supplement_history(
+            user_id, 
+            days=days
+        )
+        
+        # Filter by date range
+        filtered_history = [
+            log for log in history
+            if start_date <= datetime.strptime(log['date'], '%Y-%m-%d').date() <= end_date
+        ]
+        
+        return {
+            "success": True,
+            "history": filtered_history,
+            "count": len(filtered_history)
+        }
+    except Exception as e:
+        print(f"❌ Error getting supplement history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/supplements/stats/{user_id}")
 async def get_supplement_stats(user_id: str, days: int = 30):
@@ -1850,6 +1905,36 @@ async def delete_supplement_preference(preference_id: str):
     except Exception as e:
         print(f"❌ Error deleting supplement preference: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/supplements/{user_id}/status")
+async def get_supplement_status_by_date(
+    user_id: str,
+    date: Optional[str] = None,
+    tz_offset: int = Depends(get_timezone_offset)
+):
+    """Get supplement status for a specific date"""
+    try:
+        supabase_service = get_supabase_service()
+        
+        if date:
+            try:
+                entry_date = datetime.strptime(date, '%Y-%m-%d').date()
+            except ValueError:
+                entry_date = get_user_today(tz_offset)
+        else:
+            entry_date = get_user_today(tz_offset)
+        
+        status = await supabase_service.get_supplement_status_by_date(user_id, entry_date)
+        
+        return {
+            "success": True,
+            "status": status,
+            "date": str(entry_date)
+        }
+    except Exception as e:
+        print(f"❌ Error getting supplement status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
     
 @router.post("/exercise/log", response_model=dict)
 async def log_exercise(exercise_data: dict, tz_offset: int = Depends(get_timezone_offset)):  # Change from ExerciseLogCreate to dict

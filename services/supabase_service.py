@@ -563,6 +563,29 @@ class SupabaseService:
             print(f"❌ Error deleting step entry: {e}")
             return False
         
+    async def get_steps_in_range(
+        self, 
+        user_id: str, 
+        start_date: date, 
+        end_date: date
+    ) -> List[Dict[str, Any]]:
+        """Get step entries for a date range"""
+        try:
+            response = self.client.table('daily_steps')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .gte('date', str(start_date))\
+                .lte('date', str(end_date))\
+                .order('date', desc=False)\
+                .execute()
+            
+            if response.data:
+                return response.data
+            return []
+        except Exception as e:
+            print(f"❌ Error getting steps in range: {e}")
+            return []
+        
     async def create_weight_entry(self, weight_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new weight entry"""
         try:
