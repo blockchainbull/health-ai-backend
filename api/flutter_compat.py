@@ -2449,6 +2449,21 @@ async def create_custom_period(period_data: PeriodEntryCreate, tz_offset: int = 
         print(f"❌ Error creating custom period entry: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     
+@router.put("/users/{user_id}")
+async def update_user_profile(user_id: str, user_data: dict):
+    """Update user profile"""
+    try:
+        print(f"👤 Updating user profile: {user_id}")
+        
+        supabase_service = get_supabase_service()
+        updated_user = await supabase_service.update_user(user_id, user_data)
+        
+        return {"success": True, "user": updated_user}
+        
+    except Exception as e:
+        print(f"❌ Error updating user: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
 @router.post("/chat", response_model=dict)
 async def health_chat(request: dict, tz_offset: int = Depends(get_timezone_offset)):
     """Enhanced health chat with OpenAI integration"""
