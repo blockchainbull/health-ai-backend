@@ -71,7 +71,7 @@ async def analyze_meal(request: MealAnalysisRequest, tz_offset: int = Depends(ge
             'sugar_g': nutrition_data['sugar_g'],
             'sodium_mg': nutrition_data['sodium_mg'],
             'nutrition_data': nutrition_data,
-            'data_source': nutrition_data.get['data_source'],
+            'data_source': nutrition_data.get('data_source'),
             'search_hash': nutrition_data.get('search_hash'),
             'is_cached_source': nutrition_data.get('data_source') == 'cached',
             'confidence_score': nutrition_data.get('confidence_score', 0.8),
@@ -127,7 +127,6 @@ async def analyze_meal(request: MealAnalysisRequest, tz_offset: int = Depends(ge
         print(f"❌ Error analyzing meal: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Add log endpoint if it doesn't exist
 @router.post("/log", response_model=dict)
 async def log_meal(meal_entry: dict):
     """Log a meal entry directly (for manual entries)"""
