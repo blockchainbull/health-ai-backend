@@ -25,8 +25,12 @@ class ChatContextManager:
             
             if response.data:
                 context_record = response.data[0]
+                
+                # Deduplicate context data before returning
+                cleaned_context = self.deduplicate_context(context_record['context_data'])
+                
                 return {
-                    'context': context_record['context_data'],
+                    'context': cleaned_context,
                     'version': context_record['version'],
                     'last_updated': context_record['last_updated']
                 }
@@ -128,55 +132,71 @@ class ChatContextManager:
             
             # Update based on activity type
             if activity_type == 'meal':
-                # Add meal to list
-                meal_entry = {
-                    'id': data.get('id'),
-                    'food_item': data.get('food_item'),
-                    'meal_type': data.get('meal_type'),
-                    'calories': data.get('calories', 0),
-                    'protein_g': data.get('protein_g', 0),
-                    'carbs_g': data.get('carbs_g', 0),
-                    'fat_g': data.get('fat_g', 0),
-                    'fiber_g': data.get('fiber_g', 0),
-                    'sugar_g': data.get('sugar_g', 0),
-                    'sodium_mg': data.get('sodium_mg', 0),
-                    'logged_at': data.get('created_at', datetime.now().isoformat())
-                }
-                context['today_progress']['meals'].append(meal_entry)
+
+                meal_id = data.get('id')
+                existing_meal_ids = [m.get('id') for m in context['today_progress']['meals']]
+                
+                if meal_id not in existing_meal_ids:
+
+                    # Add meal to list
+                    meal_entry = {
+                        'id': data.get('id'),
+                        'food_item': data.get('food_item'),
+                        'meal_type': data.get('meal_type'),
+                        'calories': data.get('calories', 0),
+                        'protein_g': data.get('protein_g', 0),
+                        'carbs_g': data.get('carbs_g', 0),
+                        'fat_g': data.get('fat_g', 0),
+                        'fiber_g': data.get('fiber_g', 0),
+                        'sugar_g': data.get('sugar_g', 0),
+                        'sodium_mg': data.get('sodium_mg', 0),
+                        'logged_at': data.get('created_at', datetime.now().isoformat())
+                    }
+                    context['today_progress']['meals'].append(meal_entry)
+                    
+                    context['today_progress']['totals']['calories'] += data.get('calories', 0)
+                    context['today_progress']['totals']['protein'] += data.get('protein_g', 0)
+                    context['today_progress']['totals']['carbs'] += data.get('carbs_g', 0)
+                    context['today_progress']['totals']['fat'] += data.get('fat_g', 0)
+                    context['today_progress']['totals']['fiber'] += data.get('fiber_g', 0)
+                else:
+                    print(f"⚠️ Meal {meal_id} already exists in context, skipping")
                 
                 context['today_progress']['meals_logged'] = len(context['today_progress']['meals'])
-
-                # Update totals
-                context['today_progress']['totals']['calories'] += data.get('calories', 0)
-                context['today_progress']['totals']['protein'] += data.get('protein_g', 0)
-                context['today_progress']['totals']['carbs'] += data.get('carbs_g', 0)
-                context['today_progress']['totals']['fat'] += data.get('fat_g', 0)
-                context['today_progress']['totals']['fiber'] += data.get('fiber_g', 0)
             
             elif activity_type == 'exercise':
-                # Calculate duration if not provided
-                duration = data.get('duration_minutes')
-                if duration is None or duration == 0:
-                    # Estimate based on sets and reps
-                    if data.get('sets') and data.get('reps'):
-                        # Rough estimate: 3 seconds per rep + 60 seconds rest between sets
-                        duration = int((data['sets'] * data['reps'] * 3 + (data['sets'] - 1) * 60) / 60)
-                    else:
-                        duration = 15  # Default 15 minutes if no info
+
+                exercise_id = data.get('id')
+                existing_exercise_ids = [e.get('id') for e in context['today_progress']['exercises']]
                 
-                exercise_entry = {
-                    'id': data.get('id'),
-                    'exercise_name': data.get('exercise_name'),
-                    'muscle_group': data.get('muscle_group'),
-                    'duration_minutes': duration, 
-                    'calories_burned': data.get('calories_burned', 0),
-                    'sets': data.get('sets'),
-                    'reps': data.get('reps'),
-                    'weight_kg': data.get('weight_kg'),
-                    'logged_at': data.get('created_at', datetime.now().isoformat())
-                }
+                if exercise_id not in existing_exercise_ids:
+
+                    # Calculate duration if not provided
+                    duration = data.get('duration_minutes')
+                    if duration is None or duration == 0:
+                        # Estimate based on sets and reps
+                        if data.get('sets') and data.get('reps'):
+                            # Rough estimate: 3 seconds per rep + 60 seconds rest between sets
+                            duration = int((data['sets'] * data['reps'] * 3 + (data['sets'] - 1) * 60) / 60)
+                        else:
+                            duration = 15  # Default 15 minutes if no info
+                    
+                    exercise_entry = {
+                        'id': data.get('id'),
+                        'exercise_name': data.get('exercise_name'),
+                        'muscle_group': data.get('muscle_group'),
+                        'duration_minutes': duration, 
+                        'calories_burned': data.get('calories_burned', 0),
+                        'sets': data.get('sets'),
+                        'reps': data.get('reps'),
+                        'weight_kg': data.get('weight_kg'),
+                        'logged_at': data.get('created_at', datetime.now().isoformat())
+                    }
                 
-                context['today_progress']['exercises'].append(exercise_entry)
+                    context['today_progress']['exercises'].append(exercise_entry)
+                else:
+                    print(f"⚠️ Exercise {exercise_id} already exists in context, skipping")
+                
                 context['today_progress']['exercises_done'] = len(context['today_progress']['exercises'])
                 context['today_progress']['exercise_minutes'] = sum(
                     ex.get('duration_minutes', 0) for ex in context['today_progress']['exercises']
@@ -828,6 +848,46 @@ class ChatContextManager:
                 return f'losing_{abs(change):.1f}kg'
         
         return 'insufficient_data'
+    
+    def deduplicate_context(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Remove duplicate entries from context"""
+        
+        # Deduplicate meals by ID
+        seen_meal_ids = set()
+        unique_meals = []
+        for meal in context['today_progress']['meals']:
+            meal_id = meal.get('id')
+            if meal_id not in seen_meal_ids:
+                unique_meals.append(meal)
+                seen_meal_ids.add(meal_id)
+        context['today_progress']['meals'] = unique_meals
+        
+        # Deduplicate exercises by ID
+        seen_exercise_ids = set()
+        unique_exercises = []
+        for exercise in context['today_progress']['exercises']:
+            exercise_id = exercise.get('id')
+            if exercise_id not in seen_exercise_ids:
+                unique_exercises.append(exercise)
+                seen_exercise_ids.add(exercise_id)
+        context['today_progress']['exercises'] = unique_exercises
+        
+        # Recalculate totals
+        context['today_progress']['totals'] = {
+            'calories': sum(m.get('calories', 0) for m in unique_meals),
+            'protein': sum(m.get('protein_g', 0) for m in unique_meals),
+            'carbs': sum(m.get('carbs_g', 0) for m in unique_meals),
+            'fat': sum(m.get('fat_g', 0) for m in unique_meals),
+            'fiber': sum(m.get('fiber_g', 0) for m in unique_meals)
+        }
+        
+        context['today_progress']['meals_logged'] = len(unique_meals)
+        context['today_progress']['exercises_done'] = len(unique_exercises)
+        context['today_progress']['exercise_minutes'] = sum(
+            e.get('duration_minutes', 0) for e in unique_exercises
+        )
+        
+        return context
 
     async def _save_context(self, user_id: str, target_date: date, context: Dict, version: int):
         """Save context to database"""
@@ -845,11 +905,10 @@ class ChatContextManager:
             print(f"⚠️ Error saving context: {e}")
 
     async def ensure_daily_context(self, user_id: str) -> Dict[str, Any]:
-        """Ensure we have a fresh context for today, creating if needed"""
+        """Ensure a context exists for today"""
         today = datetime.now().date()
         
         try:
-            # Check if we have a context for today
             response = self.supabase_service.client.table('chat_contexts')\
                 .select('*')\
                 .eq('user_id', user_id)\
@@ -857,29 +916,23 @@ class ChatContextManager:
                 .execute()
             
             if response.data:
-                # Context exists for today - but check if it needs updating
-                context_data = response.data[0]
-                last_updated = datetime.fromisoformat(context_data['last_updated'])
+                context_record = response.data[0]
                 
-                # If context is more than an hour old, refresh it
-                if (datetime.now() - last_updated).total_seconds() > 3600:
-                    print(f"📅 Refreshing stale context for {user_id}")
-                    return await self.generate_fresh_context(user_id, today)
+                # Deduplicate context data before returning
+                cleaned_context = self.deduplicate_context(context_record['context_data'])
                 
                 return {
-                    'context': context_data['context_data'],
-                    'version': context_data['version'],
-                    'last_updated': context_data['last_updated'],
-                    'is_new': False
+                    'context': cleaned_context,
+                    'version': context_record['version'],
+                    'last_updated': context_record['last_updated']
                 }
             
-            # No context for today - generate from actual data
-            print(f"📅 Creating new daily context for {user_id} on {today}")
-            return await self.generate_fresh_context(user_id, today)  # Use this instead
+            # Create new context for today
+            return await self.create_initial_context(user_id, today)
             
         except Exception as e:
             print(f"Error ensuring daily context: {e}")
-            raise
+            return await self.generate_fresh_context(user_id, today)
 
 # Singleton instance
 _context_manager = None
