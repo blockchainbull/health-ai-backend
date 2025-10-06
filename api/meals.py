@@ -23,7 +23,7 @@ async def analyze_meal(request: MealAnalysisRequest, tz_offset: int = Depends(ge
         print(f"🍽️ Analyzing meal for user {request.user_id}: {request.food_item}")
         
         # user's timezone
-        user_now = datetime.utcnow + timedelta(minutes=tz_offset)
+        user_now = datetime.utcnow() + timedelta(minutes=tz_offset)
         user_date = user_now.date()
 
         # Get services
