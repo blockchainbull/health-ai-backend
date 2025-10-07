@@ -186,6 +186,8 @@ async def create_health_user(user_profile: HealthUserCreate, tz_offset: int = De
             'age': user_profile.age,
             'height': user_profile.height,
             'weight': user_profile.weight,
+            'starting_weight': user_profile.weight,
+            'starting_weight_date': get_user_now(tz_offset).isoformat(),
             'activity_level': user_profile.activityLevel,
             'bmi': user_profile.bmi,
             'bmr': user_profile.bmr,
@@ -282,6 +284,8 @@ async def complete_flutter_onboarding(
         if weight_goal.get('weightGoal') == 'maintain_weight' and target_weight == 0:
             target_weight = basic_info.get('weight', 0.0)
 
+        current_weight = basic_info.get('weight')
+        
         # Create user dictionary directly
         user_dict = {
             'id': str(uuid.uuid4()),
@@ -292,6 +296,8 @@ async def complete_flutter_onboarding(
             'age': basic_info.get('age'),
             'height': basic_info.get('height'),
             'weight': basic_info.get('weight'),
+            'starting_weight': current_weight,
+            'starting_weight_date': get_user_now(tz_offset).isoformat(),
             'activity_level': basic_info.get('activityLevel'),
             'bmi': basic_info.get('bmi'),
             'bmr': basic_info.get('bmr'),
@@ -402,11 +408,12 @@ async def get_health_user_profile(user_id: str):
                 error="User not found"
             )
         
-        # Debug sleep-related fields
-        print(f"🛏️ User sleep data from database:")
-        print(f"  bedtime: {user.get('bedtime')}")
-        print(f"  wakeup_time: {user.get('wakeup_time')}")
-        print(f"  sleep_hours: {user.get('sleep_hours')}")
+        # ✅ Auto-initialize starting weight if missing
+        if not user.get('starting_weight'):
+            print(f"🔄 Auto-initializing starting weight for user {user_id}")
+            await supabase_service.initialize_starting_weight_for_user(user_id)
+            # Fetch user again to get updated data
+            user = await supabase_service.get_user_by_id(user_id)
         
         return HealthUserResponse(
             success=True,
@@ -1174,6 +1181,9 @@ async def save_weight_entry(weight_data: WeightEntryCreate, tz_offset: int = Dep
         weight_entry_data['created_at'] = get_user_now(tz_offset).isoformat()
 
         created_entry = await supabase_service.create_weight_entry(weight_entry_data)
+        
+        # ✅ NEW: Initialize starting weight if this is user's first entry
+        await supabase_service.initialize_starting_weight_for_user(weight_data.user_id)
         
         # Update chat context (use date only from datetime)
         context_manager = get_context_manager()

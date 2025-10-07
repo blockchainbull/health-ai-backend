@@ -863,6 +863,125 @@ class SupabaseService:
         except Exception as e:
             print(f"❌ Error updating user weight: {e}")
             return False
+
+    async def initialize_starting_weight(self, user_id: str) -> bool:
+        """Initialize starting weight if not set (for new or existing users)"""
+        try:
+            user = await self.get_user_by_id(user_id)
+            
+            # Only initialize if starting_weight is not set
+            if user and not user.get('starting_weight'):
+                # Try to get the oldest weight entry
+                oldest_entry_response = self.client.table('weight_entries')\
+                    .select('weight, date')\
+                    .eq('user_id', user_id)\
+                    .order('date', desc=False)\
+                    .limit(1)\
+                    .execute()
+                
+                if oldest_entry_response.data:
+                    # Use oldest entry
+                    starting_weight = oldest_entry_response.data[0]['weight']
+                    starting_date = oldest_entry_response.data[0]['date']
+                else:
+                    # Use current weight as starting weight
+                    starting_weight = user.get('weight')
+                    starting_date = user.get('created_at')
+                
+                if starting_weight:
+                    self.client.table('users')\
+                        .update({
+                            'starting_weight': starting_weight,
+                            'starting_weight_date': starting_date
+                        })\
+                        .eq('id', user_id)\
+                        .execute()
+                    
+                    print(f"✅ Initialized starting weight to {starting_weight} kg for user {user_id}")
+                    return True
+            
+            return False
+        except Exception as e:
+            print(f"❌ Error initializing starting weight: {e}")
+            return False
+        
+    async def initialize_starting_weight_for_user(self, user_id: str) -> bool:
+        """Initialize starting weight for a user who doesn't have it set"""
+        try:
+            user = await self.get_user_by_id(user_id)
+            
+            # Only initialize if starting_weight is not set
+            if user and not user.get('starting_weight'):
+                # Try to get the oldest weight entry
+                oldest_entry_response = self.client.table('weight_entries')\
+                    .select('weight, date')\
+                    .eq('user_id', user_id)\
+                    .order('date', desc=False)\
+                    .limit(1)\
+                    .execute()
+                
+                if oldest_entry_response.data:
+                    # Use oldest entry - most accurate
+                    starting_weight = oldest_entry_response.data[0]['weight']
+                    starting_date = oldest_entry_response.data[0]['date']
+                    print(f"📊 Using oldest weight entry: {starting_weight} kg from {starting_date}")
+                else:
+                    # Use current weight as starting weight
+                    starting_weight = user.get('weight')
+                    starting_date = user.get('created_at')
+                    print(f"📊 Using profile weight as starting weight: {starting_weight} kg")
+                
+                if starting_weight:
+                    self.client.table('users')\
+                        .update({
+                            'starting_weight': starting_weight,
+                            'starting_weight_date': starting_date
+                        })\
+                        .eq('id', user_id)\
+                        .execute()
+                    
+                    print(f"✅ Initialized starting weight to {starting_weight} kg for user {user_id}")
+                    return True
+            
+            return False
+        except Exception as e:
+            print(f"❌ Error initializing starting weight: {e}")
+            return False
+
+    async def migrate_all_users_starting_weights(self) -> dict:
+        """Migrate starting weights for all users who don't have it set"""
+        try:
+            # Get all users without starting_weight
+            response = self.client.table('users')\
+                .select('id, weight, created_at')\
+                .is_('starting_weight', 'null')\
+                .execute()
+            
+            users_to_migrate = response.data
+            migrated_count = 0
+            failed_count = 0
+            
+            print(f"📊 Found {len(users_to_migrate)} users to migrate")
+            
+            for user in users_to_migrate:
+                try:
+                    success = await self.initialize_starting_weight_for_user(user['id'])
+                    if success:
+                        migrated_count += 1
+                    else:
+                        failed_count += 1
+                except Exception as e:
+                    print(f"❌ Failed to migrate user {user['id']}: {e}")
+                    failed_count += 1
+            
+            return {
+                'total': len(users_to_migrate),
+                'migrated': migrated_count,
+                'failed': failed_count
+            }
+        except Exception as e:
+            print(f"❌ Error in migration: {e}")
+            return {'error': str(e)}
         
     # sleep functions
     async def create_sleep_entry(self, sleep_data: Dict[str, Any]) -> Dict[str, Any]:
