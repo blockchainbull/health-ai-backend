@@ -4,6 +4,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta, date
 from services.openai_service import get_openai_service
 from services.supabase_service import get_supabase_service
+from services.weekly_context_manager import get_weekly_context_manager
 
 class HealthChatService:
     def __init__(self):
@@ -20,6 +21,13 @@ class HealthChatService:
         except Exception as e:
             print(f"❌ Failed to initialize Supabase service: {e}")
             self.supabase_service = None
+
+        try:
+            self.weekly_manager = get_weekly_context_manager()
+            print(f"✅ Weekly context manager initialized")
+        except Exception as e:
+            print(f"⚠️ Weekly context not available: {e}")
+            self.weekly_manager = None
     
     async def get_today_activities(self, user_id: str, target_date: date) -> dict:
         """Fetch all activities for a specific date"""
@@ -488,13 +496,14 @@ class HealthChatService:
             except Exception as e:
                 print(f"⚠️ Error saving user message: {e}")
             
-            # Get comprehensive user context with today's activities
-            user_context = await self.get_enhanced_context(user_id)
-            print(f"📊 User context retrieved: {bool(user_context)}")
+            # Try comprehensive context first, fallback to basic
+            try:
+                user_context = await self.get_comprehensive_context(user_id, include_weeks=4)
+                print(f"📊 Using comprehensive context with weekly data: {user_context.get('has_weekly_data', False)}")
+            except Exception as e:
+                print(f"⚠️ Falling back to basic context: {e}")
+                user_context = await self.get_enhanced_context(user_id)
             
-            # Debug: Print the actual context structure
-            print(f"📊 Context structure: {json.dumps(user_context.get('today_progress', {}), indent=2)}")
-
             # Get recent messages
             recent_messages = []
             try:
@@ -503,8 +512,8 @@ class HealthChatService:
             except Exception as e:
                 print(f"⚠️ Error getting recent chat context: {e}")
             
-            # Create enhanced system prompt with all activity data
-            system_prompt = self._create_system_prompt(user_context)
+            # Create enhanced system prompt
+            system_prompt = self._create_enhanced_system_prompt(user_context)
             print(f"📝 System prompt created: {len(system_prompt)} characters")
             
             # Build conversation for OpenAI
@@ -540,14 +549,65 @@ class HealthChatService:
             return reply
             
         except Exception as e:
-            # LOG THE ACTUAL ERROR
             print(f"❌ Error generating chat response: {str(e)}")
-            print(f"❌ Error type: {type(e).__name__}")
             import traceback
-            traceback.print_exc()  # This will print the full stack trace
+            traceback.print_exc()
+            return f"I'm having trouble connecting to my AI service. Please try again."
+
+    async def get_comprehensive_context(self, user_id: str, include_weeks: int = 4) -> Dict[str, Any]:
+        """Get comprehensive context including daily and weekly data"""
+        try:
+            # Get basic context first
+            basic_context = await self.get_enhanced_context(user_id)
             
-            # Return fallback with error info for debugging
-            return f"I'm having trouble connecting to my AI service. Error: {str(e)[:100]}... Please try again or ask about nutrition, exercise, or your goals."
+            # Try to add weekly context if available
+            if self.weekly_manager:
+                try:
+                    current_week = await self.weekly_manager.get_or_create_weekly_context(user_id)
+                    previous_weeks = await self.weekly_manager.get_recent_weeks_context(user_id, weeks_count=include_weeks)
+                    
+                    # Add weekly data to context
+                    basic_context['current_week'] = current_week.get('summary', {})
+                    basic_context['recent_weeks'] = previous_weeks
+                    basic_context['has_weekly_data'] = True
+                    
+                    print(f"✅ Added weekly context: {len(previous_weeks)} weeks")
+                except Exception as e:
+                    print(f"⚠️ Could not get weekly context: {e}")
+                    basic_context['has_weekly_data'] = False
+            else:
+                basic_context['has_weekly_data'] = False
+            
+            return basic_context
+            
+        except Exception as e:
+            print(f"Error getting comprehensive context: {e}")
+            return await self.get_enhanced_context(user_id)
+
+    def _create_enhanced_system_prompt(self, context: Dict[str, Any]) -> str:
+        """Create system prompt with weekly context if available"""
+        # Start with basic prompt
+        base_prompt = self._create_system_prompt(context)
+        
+        # Add weekly context if available
+        if context.get('has_weekly_data'):
+            current_week = context.get('current_week', {})
+            recent_weeks = context.get('recent_weeks', [])
+            
+            weekly_section = f"""
+
+    WEEKLY PROGRESS (This Week):
+    - Average Daily Calories: {current_week.get('avg_calories', 'N/A')}
+    - Total Workouts: {current_week.get('total_workouts', 0)}
+    - Average Sleep: {current_week.get('avg_sleep', 'N/A')}h
+    - Weight Change: {current_week.get('weight_change', 'N/A')}kg
+
+    RECENT TRENDS ({len(recent_weeks)} weeks of data available):
+    You have access to the user's weekly patterns and can reference specific weeks when discussing progress.
+    """
+            return base_prompt + weekly_section
+        
+        return base_prompt
 
 # Global instance
 chat_service = None
