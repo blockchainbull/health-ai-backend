@@ -1233,7 +1233,7 @@ async def get_latest_weight(user_id: str):
 
 @router.delete("/weight/{entry_id}")
 async def delete_weight_entry(entry_id: str):
-    """Delete a weight entry"""
+    """Delete a weight entry and update user's profile weight"""
     try:
         print(f"⚖️ Deleting weight entry: {entry_id}")
         
@@ -1245,6 +1245,8 @@ async def delete_weight_entry(entry_id: str):
         if not entry:
             return {"success": False, "message": "Weight entry not found"}
         
+        user_id = entry['user_id']
+        
         # Delete from database
         success = await supabase_service.delete_weight_entry(entry_id)
         
@@ -1252,11 +1254,26 @@ async def delete_weight_entry(entry_id: str):
             # Update context - remove weight for that date
             entry_date = datetime.fromisoformat(entry['date']).date()
             await context_manager.update_context_activity(
-                entry['user_id'],
+                user_id,
                 'weight',
                 {'weight': None},  # Set to None to indicate no weight for today
                 entry_date
             )
+            
+            # ✅ NEW: Update user's profile weight after deletion
+            latest_weight_entry = await supabase_service.get_latest_weight(user_id)
+            
+            if latest_weight_entry:
+                # Update to the most recent remaining weight entry
+                new_weight = latest_weight_entry['weight']
+                await supabase_service.update_user_weight(user_id, new_weight)
+                print(f"✅ Updated user profile weight to {new_weight} kg (latest entry)")
+            else:
+                # No entries remain - revert to starting weight
+                user = await supabase_service.get_user_by_id(user_id)
+                starting_weight = user.get('starting_weight') or user.get('weight', 0)
+                await supabase_service.update_user_weight(user_id, starting_weight)
+                print(f"✅ Reverted user profile weight to starting weight: {starting_weight} kg")
             
             return {"success": True, "message": "Weight entry deleted successfully"}
         else:

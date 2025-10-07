@@ -150,6 +150,19 @@ class SupabaseService:
             traceback.print_exc()
             raise e
         
+    async def get_meal_by_id(self, meal_id: str):
+        """Get meal by ID"""
+        try:
+            response = self.client.table('meal_entries')\
+                .select('*')\
+                .eq('id', meal_id)\
+                .execute()
+            
+            return response.data[0] if response.data else None
+        except Exception as e:
+            print(f"Error getting meal: {e}")
+            return None
+        
     async def update_meal(self, meal_id: str, update_data: Dict[str, Any]) -> Dict[str, Any]:
         """Update a meal entry"""
         try:
@@ -237,6 +250,116 @@ class SupabaseService:
             return response.data or []
         except Exception as e:
             print(f"❌ Error getting daily nutrition range: {e}")
+            return []
+        
+    async def get_meals_by_date(self, user_id: str, date: date):
+        """Get all meals for a specific date"""
+        response = self.client.table('meal_entries')\
+            .select('*')\
+            .eq('user_id', user_id)\
+            .eq('date', str(date))\
+            .execute()
+        return response.data if response.data else []
+        
+    async def create_meal_preset(self, preset_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new meal preset"""
+        try:
+            response = self.client.table('meal_presets').insert(preset_data).execute()
+            return response.data[0] if response.data else None
+        except Exception as e:
+            print(f"❌ Error creating meal preset: {e}")
+            raise
+
+    async def get_user_meal_presets(self, user_id: str) -> List[Dict[str, Any]]:
+        """Get all meal presets for a user"""
+        try:
+            response = self.client.table('meal_presets')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .order('usage_count', desc=True)\
+                .execute()
+            return response.data or []
+        except Exception as e:
+            print(f"❌ Error getting meal presets: {e}")
+            return []
+
+    async def update_preset_usage(self, preset_id: str) -> None:
+        """Increment usage count when preset is used"""
+        try:
+            # Get current count
+            response = self.client.table('meal_presets')\
+                .select('usage_count')\
+                .eq('id', preset_id)\
+                .execute()
+            
+            if response.data:
+                current_count = response.data[0].get('usage_count', 0)
+                
+                # Update count and last used timestamp
+                self.client.table('meal_presets')\
+                    .update({
+                        'usage_count': current_count + 1,
+                        'last_used_at': datetime.now().isoformat()
+                    })\
+                    .eq('id', preset_id)\
+                    .execute()
+        except Exception as e:
+            print(f"⚠️ Error updating preset usage: {e}")
+
+    async def search_cached_meal(self, user_id: str, food_item: str, quantity: str) -> Optional[Dict[str, Any]]:
+        """Search for previously logged identical meal"""
+        try:
+            import hashlib
+            # Generate consistent hash for this meal
+            search_hash = hashlib.md5(
+                f"{food_item.lower().strip()}::{quantity.lower().strip()}".encode()
+            ).hexdigest()
+            
+            # Look for recent identical meal (last 30 days)
+            thirty_days_ago = (datetime.now() - timedelta(days=30)).isoformat()
+            
+            response = self.client.table('meal_entries')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('search_hash', search_hash)\
+                .gte('logged_at', thirty_days_ago)\
+                .order('logged_at', desc=True)\
+                .limit(1)\
+                .execute()
+            
+            if response.data:
+                print(f"✅ Found cached meal: {food_item}")
+                return response.data[0]
+            return None
+        except Exception as e:
+            print(f"❌ Error searching cached meal: {e}")
+            return None
+
+    async def get_recent_unique_meals(self, user_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get recent unique meals for suggestions"""
+        try:
+            # Get recent meals with distinct food items
+            response = self.client.table('meal_entries')\
+                .select('food_item, quantity, calories, protein_g, carbs_g, fat_g, meal_type, logged_at')\
+                .eq('user_id', user_id)\
+                .order('logged_at', desc=True)\
+                .limit(50)\
+                .execute()
+            
+            # Deduplicate by food_item + quantity
+            seen = set()
+            unique_meals = []
+            for meal in response.data or []:
+                key = f"{meal['food_item']}_{meal['quantity']}"
+                if key not in seen:
+                    seen.add(key)
+                    unique_meals.append(meal)
+                    if len(unique_meals) >= limit:
+                        break
+            
+            return unique_meals
+        except Exception as e:
+            print(f"❌ Error getting recent meals: {e}")
             return []
     
     # Chat/Conversation Operations (placeholder for later)
@@ -339,6 +462,7 @@ class SupabaseService:
             traceback.print_exc()
             return []
         
+    # water functions
     async def get_water_entry_by_date(self, user_id: str, entry_date: date) -> Optional[Dict[str, Any]]:
         """Get water entry for a specific date"""
         try:
@@ -354,6 +478,28 @@ class SupabaseService:
         except Exception as e:
             print(f"❌ Error getting water entry by date: {e}")
             return None
+        
+    async def get_water_by_date(self, user_id: str, date: date):
+        """Get water intake for a specific date"""
+        response = self.client.table('daily_water')\
+            .select('*')\
+            .eq('user_id', user_id)\
+            .eq('date', str(date))\
+            .execute()
+        return response.data[0] if response.data else {}
+
+    async def delete_water_entry(self, entry_id: str):
+        """Delete water entry"""
+        try:
+            response = self.client.table('daily_water')\
+                .delete()\
+                .eq('id', entry_id)\
+                .execute()
+            
+            return True
+        except Exception as e:
+            print(f"Error deleting water entry: {e}")
+            return False
 
     async def create_water_entry(self, water_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new water entry"""
@@ -432,6 +578,7 @@ class SupabaseService:
             print(f"❌ Error getting water entries in range: {e}")
             return []
         
+    # Step functions
     async def create_step_entry(self, step_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new step entry"""
         try:
@@ -586,6 +733,17 @@ class SupabaseService:
             print(f"❌ Error getting steps in range: {e}")
             return []
         
+    async def get_steps_by_date(self, user_id: str, date: date):
+        """Get step count for a specific date"""
+        response = self.client.table('daily_steps')\
+            .select('*')\
+            .eq('user_id', user_id)\
+            .eq('date', str(date))\
+            .execute()
+        return response.data[0] if response.data else {}
+    
+    
+    # Weight functions
     async def create_weight_entry(self, weight_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new weight entry"""
         try:
@@ -676,6 +834,37 @@ class SupabaseService:
             print(f"❌ Error deleting weight entry: {e}")
             return False
         
+    async def get_weight_entry_by_id(self, entry_id: str) -> Optional[Dict[str, Any]]:
+        """Get a weight entry by ID"""
+        try:
+            response = self.client.table('weight_entries')\
+                .select('*')\
+                .eq('id', entry_id)\
+                .limit(1)\
+                .execute()
+            
+            if response.data:
+                return response.data[0]
+            return None
+        except Exception as e:
+            print(f"❌ Error getting weight entry by ID: {e}")
+            return None
+        
+    async def update_user_weight(self, user_id: str, weight: float) -> bool:
+        """Update user's current weight in the users table"""
+        try:
+            response = self.client.table('users')\
+                .update({'weight': weight})\
+                .eq('id', user_id)\
+                .execute()
+            
+            print(f"✅ Updated user's weight to {weight} kg in profile")
+            return True
+        except Exception as e:
+            print(f"❌ Error updating user weight: {e}")
+            return False
+        
+    # sleep functions
     async def create_sleep_entry(self, sleep_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new sleep entry"""
         try:
@@ -715,6 +904,19 @@ class SupabaseService:
         except Exception as e:
             print(f"❌ Error getting sleep entry by date: {e}")
             return None
+        
+    async def get_sleep_entry_by_id(self, entry_id: str):
+        """Get sleep entry by ID"""
+        try:
+            response = self.client.table('sleep_entries')\
+                .select('*')\
+                .eq('id', entry_id)\
+                .execute()
+            
+            return response.data[0] if response.data else None
+        except Exception as e:
+            print(f"Error getting sleep entry: {e}")
+            return None
 
     async def get_sleep_history(self, user_id: str, limit: int = 30) -> List[Dict[str, Any]]:
         """Get sleep history for a user"""
@@ -750,6 +952,7 @@ class SupabaseService:
             print(f"❌ Error deleting sleep entry: {e}")
             return False
         
+    # supplements functions
     async def create_supplement_preference(self, preference_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new supplement preference"""
         try:
@@ -979,6 +1182,19 @@ class SupabaseService:
         except Exception as e:
             print(f"❌ Error deleting exercise log: {e}")
             return False
+        
+    async def get_exercise_by_id(self, exercise_id: str):
+        """Get exercise by ID"""
+        try:
+            response = self.client.table('exercise_logs')\
+                .select('*')\
+                .eq('id', exercise_id)\
+                .execute()
+            
+            return response.data[0] if response.data else None
+        except Exception as e:
+            print(f"Error getting exercise: {e}")
+            return None
 
     # Period methods
     async def create_period_entry(self, period_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -1161,199 +1377,6 @@ class SupabaseService:
             print(f"Error getting/creating daily session: {e}")
             # Fallback - continue without session_id
             return None
-        
-    async def get_meals_by_date(self, user_id: str, date: date):
-        """Get all meals for a specific date"""
-        response = self.client.table('meal_entries')\
-            .select('*')\
-            .eq('user_id', user_id)\
-            .eq('date', str(date))\
-            .execute()
-        return response.data if response.data else []
-
-    async def get_water_by_date(self, user_id: str, date: date):
-        """Get water intake for a specific date"""
-        response = self.client.table('daily_water')\
-            .select('*')\
-            .eq('user_id', user_id)\
-            .eq('date', str(date))\
-            .execute()
-        return response.data[0] if response.data else {}
-
-    async def get_steps_by_date(self, user_id: str, date: date):
-        """Get step count for a specific date"""
-        response = self.client.table('daily_steps')\
-            .select('*')\
-            .eq('user_id', user_id)\
-            .eq('date', str(date))\
-            .execute()
-        return response.data[0] if response.data else {}
-    
-    async def get_weight_entry_by_id(self, entry_id: str):
-        """Get weight entry by ID"""
-        try:
-            response = self.client.table('weight_entries')\
-                .select('*')\
-                .eq('id', entry_id)\
-                .execute()
-            
-            return response.data[0] if response.data else None
-        except Exception as e:
-            print(f"Error getting weight entry: {e}")
-            return None
-
-    async def get_sleep_entry_by_id(self, entry_id: str):
-        """Get sleep entry by ID"""
-        try:
-            response = self.client.table('sleep_entries')\
-                .select('*')\
-                .eq('id', entry_id)\
-                .execute()
-            
-            return response.data[0] if response.data else None
-        except Exception as e:
-            print(f"Error getting sleep entry: {e}")
-            return None
-
-    async def get_exercise_by_id(self, exercise_id: str):
-        """Get exercise by ID"""
-        try:
-            response = self.client.table('exercise_logs')\
-                .select('*')\
-                .eq('id', exercise_id)\
-                .execute()
-            
-            return response.data[0] if response.data else None
-        except Exception as e:
-            print(f"Error getting exercise: {e}")
-            return None
-
-    async def get_meal_by_id(self, meal_id: str):
-        """Get meal by ID"""
-        try:
-            response = self.client.table('meal_entries')\
-                .select('*')\
-                .eq('id', meal_id)\
-                .execute()
-            
-            return response.data[0] if response.data else None
-        except Exception as e:
-            print(f"Error getting meal: {e}")
-            return None
-
-    async def delete_water_entry(self, entry_id: str):
-        """Delete water entry"""
-        try:
-            response = self.client.table('daily_water')\
-                .delete()\
-                .eq('id', entry_id)\
-                .execute()
-            
-            return True
-        except Exception as e:
-            print(f"Error deleting water entry: {e}")
-            return False
-        
-    async def create_meal_preset(self, preset_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a new meal preset"""
-        try:
-            response = self.client.table('meal_presets').insert(preset_data).execute()
-            return response.data[0] if response.data else None
-        except Exception as e:
-            print(f"❌ Error creating meal preset: {e}")
-            raise
-
-    async def get_user_meal_presets(self, user_id: str) -> List[Dict[str, Any]]:
-        """Get all meal presets for a user"""
-        try:
-            response = self.client.table('meal_presets')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .order('usage_count', desc=True)\
-                .execute()
-            return response.data or []
-        except Exception as e:
-            print(f"❌ Error getting meal presets: {e}")
-            return []
-
-    async def update_preset_usage(self, preset_id: str) -> None:
-        """Increment usage count when preset is used"""
-        try:
-            # Get current count
-            response = self.client.table('meal_presets')\
-                .select('usage_count')\
-                .eq('id', preset_id)\
-                .execute()
-            
-            if response.data:
-                current_count = response.data[0].get('usage_count', 0)
-                
-                # Update count and last used timestamp
-                self.client.table('meal_presets')\
-                    .update({
-                        'usage_count': current_count + 1,
-                        'last_used_at': datetime.now().isoformat()
-                    })\
-                    .eq('id', preset_id)\
-                    .execute()
-        except Exception as e:
-            print(f"⚠️ Error updating preset usage: {e}")
-
-    async def search_cached_meal(self, user_id: str, food_item: str, quantity: str) -> Optional[Dict[str, Any]]:
-        """Search for previously logged identical meal"""
-        try:
-            import hashlib
-            # Generate consistent hash for this meal
-            search_hash = hashlib.md5(
-                f"{food_item.lower().strip()}::{quantity.lower().strip()}".encode()
-            ).hexdigest()
-            
-            # Look for recent identical meal (last 30 days)
-            thirty_days_ago = (datetime.now() - timedelta(days=30)).isoformat()
-            
-            response = self.client.table('meal_entries')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('search_hash', search_hash)\
-                .gte('logged_at', thirty_days_ago)\
-                .order('logged_at', desc=True)\
-                .limit(1)\
-                .execute()
-            
-            if response.data:
-                print(f"✅ Found cached meal: {food_item}")
-                return response.data[0]
-            return None
-        except Exception as e:
-            print(f"❌ Error searching cached meal: {e}")
-            return None
-
-    async def get_recent_unique_meals(self, user_id: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """Get recent unique meals for suggestions"""
-        try:
-            # Get recent meals with distinct food items
-            response = self.client.table('meal_entries')\
-                .select('food_item, quantity, calories, protein_g, carbs_g, fat_g, meal_type, logged_at')\
-                .eq('user_id', user_id)\
-                .order('logged_at', desc=True)\
-                .limit(50)\
-                .execute()
-            
-            # Deduplicate by food_item + quantity
-            seen = set()
-            unique_meals = []
-            for meal in response.data or []:
-                key = f"{meal['food_item']}_{meal['quantity']}"
-                if key not in seen:
-                    seen.add(key)
-                    unique_meals.append(meal)
-                    if len(unique_meals) >= limit:
-                        break
-            
-            return unique_meals
-        except Exception as e:
-            print(f"❌ Error getting recent meals: {e}")
-            return []
 
 # Global instance - we'll initialize this in main.py
 supabase_service = None
