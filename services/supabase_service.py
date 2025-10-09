@@ -335,29 +335,37 @@ class SupabaseService:
             print(f"❌ Error searching cached meal: {e}")
             return None
 
-    async def get_recent_unique_meals(self, user_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+    async def get_recent_unique_meals(self, user_id: str, limit: int = 15) -> List[Dict[str, Any]]:
         """Get recent unique meals for suggestions"""
         try:
-            # Get recent meals with distinct food items
+            # Get more meals initially to ensure we have enough unique ones after deduplication
             response = self.client.table('meal_entries')\
-                .select('food_item, quantity, calories, protein_g, carbs_g, fat_g, meal_type, logged_at')\
+                .select('food_item, quantity, calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg, meal_type, logged_at, nutrition_data')\
                 .eq('user_id', user_id)\
                 .order('logged_at', desc=True)\
-                .limit(50)\
+                .limit(100)\
                 .execute()
             
-            # Deduplicate by food_item + quantity
+            # Deduplicate by food_item only (not quantity) for more variety
             seen = set()
             unique_meals = []
+            
             for meal in response.data or []:
-                key = f"{meal['food_item']}_{meal['quantity']}"
-                if key not in seen:
-                    seen.add(key)
+                # Create a normalized key from food_item
+                food_item = meal['food_item'].lower().strip()
+                
+                # Skip if we've already seen this exact food item
+                if food_item not in seen:
+                    seen.add(food_item)
                     unique_meals.append(meal)
+                    
+                    # Stop once we have enough unique meals
                     if len(unique_meals) >= limit:
                         break
             
+            print(f"✅ Found {len(unique_meals)} unique meals from {len(response.data or [])} total meals")
             return unique_meals
+            
         except Exception as e:
             print(f"❌ Error getting recent meals: {e}")
             return []

@@ -467,8 +467,8 @@ async def get_meal_suggestions(user_id: str):
     try:
         supabase_service = get_supabase_service()
         
-        # Get recent unique meals
-        recent_meals = await supabase_service.get_recent_unique_meals(user_id)
+        # Get recent unique meals (15 instead of default 10)
+        recent_meals = await supabase_service.get_recent_unique_meals(user_id, limit=15)
         
         # Get top presets
         presets = await supabase_service.get_user_meal_presets(user_id)
