@@ -400,11 +400,14 @@ async def use_meal_preset(preset_id: str, data: dict):
         
         preset = response.data[0]
         
+        
+        food_description = preset.get('food_items') or preset['preset_name']
+        
         # Create meal entry from preset
         meal_entry = {
             'id': str(uuid.uuid4()),
             'user_id': preset['user_id'],
-            'food_item': preset['preset_name'],
+            'food_item': food_description,
             'quantity': '1 serving',
             'meal_type': data.get('meal_type', preset.get('meal_type', 'snack')),
             'calories': preset['total_calories'],
@@ -417,7 +420,8 @@ async def use_meal_preset(preset_id: str, data: dict):
             'nutrition_data': {
                 'from_preset': True,
                 'preset_id': preset_id,
-                'food_items': preset['food_items']
+                'preset_name': preset['preset_name'],
+                'food_items': food_description
             },
             'data_source': 'preset',
             'meal_date': data.get('meal_date', datetime.now().isoformat()),
@@ -436,7 +440,7 @@ async def use_meal_preset(preset_id: str, data: dict):
             activity_type='meal',
             data={
                 'id': saved['id'],
-                'food_item': preset['preset_name'],
+                'food_item': food_description,  # CHANGED: Use full description
                 'meal_type': data.get('meal_type', preset.get('meal_type', 'snack')),
                 'calories': saved['calories'],
                 'protein_g': saved['protein_g'],
@@ -447,7 +451,8 @@ async def use_meal_preset(preset_id: str, data: dict):
                 'sodium_mg': saved.get('sodium_mg', 0),
                 'created_at': saved['logged_at'],
                 'data_source': 'preset',
-                'preset_id': preset_id
+                'preset_id': preset_id,
+                'preset_name': preset['preset_name']
             }
         )
 
