@@ -21,10 +21,34 @@ async def analyze_meal(request: MealAnalysisRequest, tz_offset: int = Depends(ge
     """Analyze meal using smart parser with CACHING"""
     try:
         print(f"🍽️ Analyzing meal for user {request.user_id}: {request.food_item}")
+        print(f"📅 Received meal_date from client: {request.meal_date}")
+        print(f"🌍 Timezone offset from headers: {tz_offset} minutes")
         
-        # user's timezone
-        user_now = datetime.utcnow() + timedelta(minutes=tz_offset)
-        user_date = user_now.date()
+        # Parse the incoming datetime - it's ALREADY in user's local timezone
+        if request.meal_date:
+            try:
+                # Parse the ISO string sent by Flutter (already in local time)
+                meal_datetime = datetime.fromisoformat(request.meal_date.replace('Z', '+00:00'))
+                
+                # If it has timezone info, convert to naive datetime (remove tz info)
+                if meal_datetime.tzinfo is not None:
+                    meal_datetime = meal_datetime.replace(tzinfo=None)
+                
+                # This is now the user's local time as a naive datetime
+                user_date = meal_datetime.date()
+                user_now = meal_datetime
+                
+                print(f"📅 Parsed meal datetime (user local): {meal_datetime}")
+                print(f"📅 Extracted date: {user_date}")
+            except Exception as e:
+                print(f"⚠️ Error parsing meal_date, using current time: {e}")
+                user_now = datetime.utcnow() + timedelta(minutes=tz_offset)
+                user_date = user_now.date()
+        else:
+            # No meal_date provided, use current time in user's timezone
+            user_now = datetime.utcnow() + timedelta(minutes=tz_offset)
+            user_date = user_now.date()
+            print(f"📅 No meal_date provided, using current time: {user_now}")
 
         # Get services
         supabase_service = get_supabase_service()
@@ -59,7 +83,7 @@ async def analyze_meal(request: MealAnalysisRequest, tz_offset: int = Depends(ge
             print(f"⚠️ WARNING: No data_source set for meal analysis!")
             nutrition_data['data_source'] = 'unknown'
         
-        # Prepare meal entry data
+        # Prepare meal entry data - use the parsed user local time
         meal_entry = {
             'id': str(uuid.uuid4()),
             'user_id': request.user_id,
@@ -79,10 +103,13 @@ async def analyze_meal(request: MealAnalysisRequest, tz_offset: int = Depends(ge
             'search_hash': nutrition_data.get('search_hash'),
             'is_cached_source': nutrition_data.get('data_source') == 'cached',
             'confidence_score': nutrition_data.get('confidence_score', 0.8),
-            'meal_date': request.meal_date or user_date.isoformat(),
-            'logged_at': user_now.isoformat(),
+            'meal_date': user_date.isoformat(),  # Store just the date
+            'logged_at': user_now.isoformat(),  # Store the full datetime (user's local time)
             'updated_at': user_now.isoformat()
         }
+        
+        print(f"💾 Saving meal with logged_at: {meal_entry['logged_at']}")
+        print(f"💾 Saving meal with meal_date: {meal_entry['meal_date']}")
         
         # Save to database
         saved_meal = await supabase_service.create_meal_entry(meal_entry)
