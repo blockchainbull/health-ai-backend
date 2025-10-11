@@ -1343,6 +1343,66 @@ async def get_weight_stats(user_id: str, days: int = 30):
         print(f"❌ Error getting weight stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     
+@router.patch("/user/{user_id}/weight")
+async def update_user_weight_endpoint(user_id: str, weight_data: dict):
+    """Update user's current weight in profile"""
+    try:
+        print(f"⚖️ Updating user weight for {user_id} to {weight_data.get('weight')} kg")
+        
+        supabase_service = get_supabase_service()
+        new_weight = weight_data.get('weight')
+        
+        if not new_weight:
+            raise HTTPException(status_code=400, detail="Weight is required")
+        
+        success = await supabase_service.update_user_weight(user_id, new_weight)
+        
+        if success:
+            return {"success": True, "message": "User weight updated successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update user weight")
+            
+    except Exception as e:
+        print(f"❌ Error updating user weight: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/user/{user_id}/set-starting-weight")
+async def set_starting_weight_endpoint(user_id: str, weight_data: dict):
+    """Set user's starting weight"""
+    try:
+        print(f"⚖️ Setting starting weight for {user_id} to {weight_data.get('starting_weight')} kg")
+        
+        supabase_service = get_supabase_service()
+        starting_weight = weight_data.get('starting_weight')
+        
+        if not starting_weight:
+            raise HTTPException(status_code=400, detail="Starting weight is required")
+        
+        # Update starting weight in users table
+        response = supabase_service.client.table('users')\
+            .update({
+                'starting_weight': starting_weight,
+                'starting_weight_date': datetime.utcnow().isoformat()
+            })\
+            .eq('id', user_id)\
+            .execute()
+        
+        if response.data:
+            return {
+                "success": True, 
+                "message": "Starting weight set successfully",
+                "starting_weight": starting_weight
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to set starting weight")
+            
+    except Exception as e:
+        print(f"❌ Error setting starting weight: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+
+# Sleep
 @router.post("/sleep/entries", response_model=dict)
 async def create_sleep_entry(sleep_data: SleepEntryCreate, tz_offset: int = Depends(get_timezone_offset)):
     """Create or update sleep entry"""
