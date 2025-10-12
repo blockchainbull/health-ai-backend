@@ -24,22 +24,22 @@ async def analyze_meal(request: MealAnalysisRequest, tz_offset: int = Depends(ge
         print(f"📅 Received meal_date from client: {request.meal_date}")
         print(f"🌍 Timezone offset from headers: {tz_offset} minutes ({tz_offset/60} hours)")
         
-        # Parse the incoming datetime - treat it as user's local time (NOT UTC)
+        # Parse the incoming datetime - it's in UTC
         if request.meal_date:
             try:
-                # Remove any 'Z' suffix and parse as naive datetime (local time)
-                date_str = request.meal_date.replace('Z', '').replace('+00:00', '')
-                meal_datetime = datetime.fromisoformat(date_str)
+                # Parse as UTC datetime
+                date_str = request.meal_date.replace('Z', '+00:00')
+                utc_datetime = datetime.fromisoformat(date_str)
                 
-                # This datetime is in the USER'S local timezone, not UTC
-                user_now = meal_datetime
-                user_date = meal_datetime.date()
+                # Convert UTC to user's local time
+                user_now = utc_datetime + timedelta(minutes=tz_offset)
+                user_date = user_now.date()
                 
-                print(f"✅ Using client's local time: {meal_datetime}")
+                print(f"✅ Received UTC time: {utc_datetime}")
+                print(f"✅ Converted to user local time: {user_now}")
                 print(f"📅 Date: {user_date}")
             except Exception as e:
                 print(f"⚠️ Error parsing meal_date: {e}, using current time")
-                # Fallback: use current UTC + offset
                 user_now = datetime.utcnow() + timedelta(minutes=tz_offset)
                 user_date = user_now.date()
         else:
