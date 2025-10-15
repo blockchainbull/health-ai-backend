@@ -21,32 +21,27 @@ async def analyze_meal(request: MealAnalysisRequest, tz_offset: int = Depends(ge
     """Analyze meal using smart parser with CACHING"""
     try:
         print(f"🍽️ Analyzing meal for user {request.user_id}: {request.food_item}")
-        print(f"📅 Received meal_date from client: {request.meal_date}")
-        print(f"🌍 Timezone offset from headers: {tz_offset} minutes ({tz_offset/60} hours)")
+        print(f"📅 Received meal_date (UTC): {request.meal_date}")
         
-        # Parse the incoming datetime - it's in UTC
+        # Parse the UTC datetime - NO CONVERSION, just parse it
         if request.meal_date:
             try:
-                # Parse as UTC datetime
-                date_str = request.meal_date.replace('Z', '+00:00')
-                utc_datetime = datetime.fromisoformat(date_str)
+                # Parse as UTC, keep as UTC
+                meal_datetime_utc = datetime.fromisoformat(request.meal_date.replace('Z', '+00:00'))
+                # Extract date for daily nutrition (convert to user's date for grouping)
+                user_date = (meal_datetime_utc + timedelta(minutes=tz_offset)).date()
                 
-                # Convert UTC to user's local time
-                user_now = utc_datetime + timedelta(minutes=tz_offset)
-                user_date = user_now.date()
-                
-                print(f"✅ Received UTC time: {utc_datetime}")
-                print(f"✅ Converted to user local time: {user_now}")
-                print(f"📅 Date: {user_date}")
+                print(f"✅ Storing UTC time: {meal_datetime_utc}")
+                print(f"📅 User's date for grouping: {user_date}")
             except Exception as e:
-                print(f"⚠️ Error parsing meal_date: {e}, using current time")
-                user_now = datetime.utcnow() + timedelta(minutes=tz_offset)
-                user_date = user_now.date()
+                print(f"⚠️ Error parsing meal_date: {e}, using current UTC time")
+                meal_datetime_utc = datetime.utcnow()
+                user_date = (meal_datetime_utc + timedelta(minutes=tz_offset)).date()
         else:
-            # No meal_date provided, use current time in user's timezone
-            user_now = datetime.utcnow() + timedelta(minutes=tz_offset)
-            user_date = user_now.date()
-            print(f"📅 No meal_date provided, using current time: {user_now}")
+            # No meal_date provided, use current UTC time
+            meal_datetime_utc = datetime.utcnow()
+            user_date = (meal_datetime_utc + timedelta(minutes=tz_offset)).date()
+            print(f"📅 No meal_date provided, using current UTC: {meal_datetime_utc}")
 
         # Get services
         supabase_service = get_supabase_service()
@@ -81,7 +76,7 @@ async def analyze_meal(request: MealAnalysisRequest, tz_offset: int = Depends(ge
             print(f"⚠️ WARNING: No data_source set for meal analysis!")
             nutrition_data['data_source'] = 'unknown'
         
-        # Prepare meal entry data - use the user's local time
+        # Prepare meal entry data - store UTC time as-is
         meal_entry = {
             'id': str(uuid.uuid4()),
             'user_id': request.user_id,
@@ -101,19 +96,18 @@ async def analyze_meal(request: MealAnalysisRequest, tz_offset: int = Depends(ge
             'search_hash': nutrition_data.get('search_hash'),
             'is_cached_source': nutrition_data.get('data_source') == 'cached',
             'confidence_score': nutrition_data.get('confidence_score', 0.8),
-            'meal_date': user_date.isoformat(),  # Store just the date
-            'logged_at': user_now.isoformat(),  # Store user's local time
-            'updated_at': user_now.isoformat()
+            'meal_date': user_date.isoformat(),  # User's date for grouping
+            'logged_at': meal_datetime_utc.isoformat() + 'Z',  # Store UTC with Z marker
+            'updated_at': datetime.utcnow().isoformat() + 'Z'
         }
         
-        print(f"💾 Saving meal with logged_at (USER LOCAL): {meal_entry['logged_at']}")
-        print(f"💾 Saving meal with meal_date: {meal_entry['meal_date']}")
+        print(f"💾 Saving meal with logged_at (UTC): {meal_entry['logged_at']}")
+        print(f"💾 Meal date for grouping: {meal_entry['meal_date']}")
         
         # Save to database
         saved_meal = await supabase_service.create_meal_entry(meal_entry)
         
-        print(f"✅ Meal saved! Checking what was stored...")
-        print(f"   Stored logged_at: {saved_meal.get('logged_at')}")
+        print(f"✅ Meal saved in UTC!")
         
         # Update chat context with the new meal
         await context_manager.update_context_activity(
