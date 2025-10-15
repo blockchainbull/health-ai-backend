@@ -407,11 +407,15 @@ async def get_meal_presets(user_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/presets/{preset_id}/use")
-async def use_meal_preset(preset_id: str, data: dict):
+async def use_meal_preset(preset_id: str, data: dict, tz_offset: int = Depends(get_timezone_offset)):
     """Log meals from a preset"""
     try:
         supabase_service = get_supabase_service()
         context_manager = get_context_manager()
+        
+        print(f"🍽️ Using preset: {preset_id}")
+        print(f"📅 Received meal_date (UTC): {data.get('meal_date')}")
+        print(f"🌍 Timezone offset: {tz_offset} minutes")
         
         # Get the preset
         response = supabase_service.client.table('meal_presets')\
@@ -424,14 +428,30 @@ async def use_meal_preset(preset_id: str, data: dict):
         
         preset = response.data[0]
         
-        
-        food_description = preset.get('food_items') or preset['preset_name']
+        # Parse the UTC datetime - keep as UTC
+        if data.get('meal_date'):
+            try:
+                # Parse as UTC, keep as UTC
+                meal_datetime_utc = datetime.fromisoformat(data['meal_date'].replace('Z', '+00:00'))
+                # Extract date for daily nutrition (convert to user's date for grouping)
+                user_date = (meal_datetime_utc + timedelta(minutes=tz_offset)).date()
+                
+                print(f"✅ Storing UTC time: {meal_datetime_utc}")
+                print(f"📅 User's date for grouping: {user_date}")
+            except Exception as e:
+                print(f"⚠️ Error parsing meal_date: {e}, using current UTC time")
+                meal_datetime_utc = datetime.utcnow()
+                user_date = (meal_datetime_utc + timedelta(minutes=tz_offset)).date()
+        else:
+            # No meal_date provided, use current UTC time
+            meal_datetime_utc = datetime.utcnow()
+            user_date = (meal_datetime_utc + timedelta(minutes=tz_offset)).date()
         
         # Create meal entry from preset
         meal_entry = {
             'id': str(uuid.uuid4()),
             'user_id': preset['user_id'],
-            'food_item': food_description,
+            'food_item': preset['preset_name'],
             'quantity': '1 serving',
             'meal_type': data.get('meal_type', preset.get('meal_type', 'snack')),
             'calories': preset['total_calories'],
@@ -444,17 +464,20 @@ async def use_meal_preset(preset_id: str, data: dict):
             'nutrition_data': {
                 'from_preset': True,
                 'preset_id': preset_id,
-                'preset_name': preset['preset_name'],
-                'food_items': food_description
+                'food_items': preset['food_items']
             },
             'data_source': 'preset',
-            'meal_date': data.get('meal_date', datetime.now().isoformat()),
-            'logged_at': datetime.now().isoformat(),
-            'updated_at': datetime.now().isoformat()
+            'meal_date': user_date.isoformat(),  # User's date for grouping
+            'logged_at': meal_datetime_utc.isoformat() + 'Z',  # Store UTC with Z marker
+            'updated_at': datetime.utcnow().isoformat() + 'Z'
         }
+        
+        print(f"💾 Saving preset meal with logged_at (UTC): {meal_entry['logged_at']}")
         
         # Save meal
         saved = await supabase_service.create_meal_entry(meal_entry)
+        
+        print(f"✅ Preset meal saved in UTC!")
         
         # Update preset usage
         await supabase_service.update_preset_usage(preset_id)
@@ -464,7 +487,7 @@ async def use_meal_preset(preset_id: str, data: dict):
             activity_type='meal',
             data={
                 'id': saved['id'],
-                'food_item': food_description,  # CHANGED: Use full description
+                'food_item': preset['preset_name'],
                 'meal_type': data.get('meal_type', preset.get('meal_type', 'snack')),
                 'calories': saved['calories'],
                 'protein_g': saved['protein_g'],
@@ -475,14 +498,17 @@ async def use_meal_preset(preset_id: str, data: dict):
                 'sodium_mg': saved.get('sodium_mg', 0),
                 'created_at': saved['logged_at'],
                 'data_source': 'preset',
-                'preset_id': preset_id,
-                'preset_name': preset['preset_name']
-            }
+                'preset_id': preset_id
+            },
+            date=user_date
         )
 
         return {"success": True, "meal": saved}
         
     except Exception as e:
+        print(f"❌ Error using preset: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/suggestions/{user_id}")
