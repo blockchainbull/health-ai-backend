@@ -96,9 +96,9 @@ async def analyze_meal(request: MealAnalysisRequest, tz_offset: int = Depends(ge
             'search_hash': nutrition_data.get('search_hash'),
             'is_cached_source': nutrition_data.get('data_source') == 'cached',
             'confidence_score': nutrition_data.get('confidence_score', 0.8),
-            'meal_date': user_date.isoformat(),  # User's date for grouping
-            'logged_at': meal_datetime_utc.isoformat() + 'Z',  # Store UTC with Z marker
-            'updated_at': datetime.utcnow().isoformat() + 'Z'
+            'meal_date': user_date.isoformat(),
+            'logged_at': meal_datetime_utc.isoformat(),
+            'updated_at': datetime.utcnow().isoformat()
         }
         
         print(f"💾 Saving meal with logged_at (UTC): {meal_entry['logged_at']}")
@@ -410,12 +410,11 @@ async def get_meal_presets(user_id: str):
 async def use_meal_preset(preset_id: str, data: dict, tz_offset: int = Depends(get_timezone_offset)):
     """Log meals from a preset"""
     try:
-        supabase_service = get_supabase_service()
-        context_manager = get_context_manager()
-        
         print(f"🍽️ Using preset: {preset_id}")
-        print(f"📅 Received meal_date (UTC): {data.get('meal_date')}")
+        print(f"📅 Received data: {data}")
         print(f"🌍 Timezone offset: {tz_offset} minutes")
+        
+        supabase_service = get_supabase_service()
         
         # Get the preset
         response = supabase_service.client.table('meal_presets')\
@@ -424,99 +423,92 @@ async def use_meal_preset(preset_id: str, data: dict, tz_offset: int = Depends(g
             .execute()
         
         if not response.data:
+            print(f"❌ Preset not found: {preset_id}")
             raise HTTPException(status_code=404, detail="Preset not found")
         
         preset = response.data[0]
+        print(f"✅ Found preset: {preset.get('preset_name')}")
         
         # Parse the UTC datetime - keep as UTC
+        meal_datetime_utc = datetime.utcnow()  
+        
         if data.get('meal_date'):
             try:
                 # Parse as UTC, keep as UTC
-                meal_datetime_utc = datetime.fromisoformat(data['meal_date'].replace('Z', '+00:00'))
-                # Extract date for daily nutrition (convert to user's date for grouping)
-                user_date = (meal_datetime_utc + timedelta(minutes=tz_offset)).date()
-                
-                print(f"✅ Storing UTC time: {meal_datetime_utc}")
-                print(f"📅 User's date for grouping: {user_date}")
+                meal_date_str = data['meal_date'].replace('Z', '+00:00')
+                meal_datetime_utc = datetime.fromisoformat(meal_date_str)
+                # Remove timezone info to make it naive
+                if meal_datetime_utc.tzinfo is not None:
+                    meal_datetime_utc = meal_datetime_utc.replace(tzinfo=None)
+                print(f"✅ Parsed meal_date: {meal_datetime_utc}")
             except Exception as e:
                 print(f"⚠️ Error parsing meal_date: {e}, using current UTC time")
-                meal_datetime_utc = datetime.utcnow()
-                user_date = (meal_datetime_utc + timedelta(minutes=tz_offset)).date()
-        else:
-            # No meal_date provided, use current UTC time
-            meal_datetime_utc = datetime.utcnow()
-            user_date = (meal_datetime_utc + timedelta(minutes=tz_offset)).date()
+        
+        # Calculate user's date for grouping
+        user_date = (meal_datetime_utc + timedelta(minutes=tz_offset)).date()
+        print(f"📅 User's date for grouping: {user_date}")
         
         # Create meal entry from preset
         meal_entry = {
             'id': str(uuid.uuid4()),
             'user_id': preset['user_id'],
-            'food_item': preset['preset_name'],
+            'food_item': preset.get('preset_name', 'Preset Meal'),
             'quantity': '1 serving',
             'meal_type': data.get('meal_type', preset.get('meal_type', 'snack')),
-            'calories': preset['total_calories'],
-            'protein_g': preset['total_protein_g'],
-            'carbs_g': preset['total_carbs_g'],
-            'fat_g': preset['total_fat_g'],
-            'fiber_g': preset.get('total_fiber_g', 0),
-            'sugar_g': preset.get('total_sugar_g', 0),
-            'sodium_mg': preset.get('total_sodium_mg', 0),
+            'calories': float(preset.get('total_calories', 0)),
+            'protein_g': float(preset.get('total_protein_g', 0)),
+            'carbs_g': float(preset.get('total_carbs_g', 0)),
+            'fat_g': float(preset.get('total_fat_g', 0)),
+            'fiber_g': float(preset.get('total_fiber_g', 0)),
+            'sugar_g': float(preset.get('total_sugar_g', 0)),
+            'sodium_mg': float(preset.get('total_sodium_mg', 0)),
             'nutrition_data': {
                 'from_preset': True,
                 'preset_id': preset_id,
-                'food_items': preset.get('food_items', preset['preset_name'])
+                'food_items': preset.get('food_items', preset.get('preset_name', ''))
             },
             'data_source': 'preset',
-            'meal_date': user_date.isoformat(),  # User's date for grouping
-            'logged_at': meal_datetime_utc.isoformat() + 'Z',  # Store UTC with Z marker
-            'updated_at': datetime.utcnow().isoformat() + 'Z'
+            'meal_date': user_date.isoformat(),
+            'logged_at': meal_datetime_utc.isoformat(), 
+            'updated_at': datetime.utcnow().isoformat() 
         }
         
-        print(f"💾 Saving preset meal with logged_at (UTC): {meal_entry['logged_at']}")
+        print(f"💾 Saving meal entry: {meal_entry['food_item']}")
+        print(f"💾 logged_at (UTC): {meal_entry['logged_at']}")
         
         # Save meal
         saved = await supabase_service.create_meal_entry(meal_entry)
+        print(f"✅ Meal saved with ID: {saved.get('id')}")
         
-        print(f"✅ Preset meal saved in UTC!")
-        
-        # Update preset usage
+        # Update preset usage (non-critical)
         try:
             await supabase_service.update_preset_usage(preset_id)
+            print(f"✅ Updated preset usage count")
         except Exception as e:
-            print(f"⚠️ Failed to update preset usage (non-critical): {e}")
+            print(f"⚠️ Failed to update preset usage: {e}")
 
-        # Update context
+        # Update context (non-critical)
         try:
+            context_manager = get_context_manager()
             await context_manager.update_context_activity(
                 user_id=preset['user_id'],
                 activity_type='meal',
-                data={
-                    'id': saved['id'],
-                    'food_item': preset['preset_name'],
-                    'meal_type': data.get('meal_type', preset.get('meal_type', 'snack')),
-                    'calories': saved['calories'],
-                    'protein_g': saved['protein_g'],
-                    'carbs_g': saved['carbs_g'],
-                    'fat_g': saved['fat_g'],
-                    'fiber_g': saved.get('fiber_g', 0),
-                    'sugar_g': saved.get('sugar_g', 0),
-                    'sodium_mg': saved.get('sodium_mg', 0),
-                    'created_at': saved['logged_at'],
-                    'data_source': 'preset',
-                    'preset_id': preset_id
-                },
+                data=saved,
                 date=user_date
             )
+            print(f"✅ Updated context")
         except Exception as e:
-            print(f"⚠️ Failed to update context (non-critical): {e}")
+            print(f"⚠️ Failed to update context: {e}")
 
         return {"success": True, "meal": saved}
         
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"❌ Error using preset: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to use preset: {str(e)}")
 
 @router.get("/suggestions/{user_id}")
 async def get_meal_suggestions(user_id: str):
