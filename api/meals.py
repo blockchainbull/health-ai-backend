@@ -464,7 +464,7 @@ async def use_meal_preset(preset_id: str, data: dict, tz_offset: int = Depends(g
             'nutrition_data': {
                 'from_preset': True,
                 'preset_id': preset_id,
-                'food_items': preset['food_items']
+                'food_items': preset.get('food_items', preset['preset_name'])
             },
             'data_source': 'preset',
             'meal_date': user_date.isoformat(),  # User's date for grouping
@@ -480,28 +480,35 @@ async def use_meal_preset(preset_id: str, data: dict, tz_offset: int = Depends(g
         print(f"✅ Preset meal saved in UTC!")
         
         # Update preset usage
-        await supabase_service.update_preset_usage(preset_id)
+        try:
+            await supabase_service.update_preset_usage(preset_id)
+        except Exception as e:
+            print(f"⚠️ Failed to update preset usage (non-critical): {e}")
 
-        await context_manager.update_context_activity(
-            user_id=preset['user_id'],
-            activity_type='meal',
-            data={
-                'id': saved['id'],
-                'food_item': preset['preset_name'],
-                'meal_type': data.get('meal_type', preset.get('meal_type', 'snack')),
-                'calories': saved['calories'],
-                'protein_g': saved['protein_g'],
-                'carbs_g': saved['carbs_g'],
-                'fat_g': saved['fat_g'],
-                'fiber_g': saved.get('fiber_g', 0),
-                'sugar_g': saved.get('sugar_g', 0),
-                'sodium_mg': saved.get('sodium_mg', 0),
-                'created_at': saved['logged_at'],
-                'data_source': 'preset',
-                'preset_id': preset_id
-            },
-            date=user_date
-        )
+        # Update context
+        try:
+            await context_manager.update_context_activity(
+                user_id=preset['user_id'],
+                activity_type='meal',
+                data={
+                    'id': saved['id'],
+                    'food_item': preset['preset_name'],
+                    'meal_type': data.get('meal_type', preset.get('meal_type', 'snack')),
+                    'calories': saved['calories'],
+                    'protein_g': saved['protein_g'],
+                    'carbs_g': saved['carbs_g'],
+                    'fat_g': saved['fat_g'],
+                    'fiber_g': saved.get('fiber_g', 0),
+                    'sugar_g': saved.get('sugar_g', 0),
+                    'sodium_mg': saved.get('sodium_mg', 0),
+                    'created_at': saved['logged_at'],
+                    'data_source': 'preset',
+                    'preset_id': preset_id
+                },
+                date=user_date
+            )
+        except Exception as e:
+            print(f"⚠️ Failed to update context (non-critical): {e}")
 
         return {"success": True, "meal": saved}
         
