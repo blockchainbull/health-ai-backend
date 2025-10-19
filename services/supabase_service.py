@@ -254,12 +254,17 @@ class SupabaseService:
         
     async def get_meals_by_date(self, user_id: str, date: date):
         """Get all meals for a specific date"""
-        response = self.client.table('meal_entries')\
-            .select('*')\
-            .eq('user_id', user_id)\
-            .eq('date', str(date))\
-            .execute()
-        return response.data if response.data else []
+        try:
+            # Use meal_date column and filter by date range
+            response = self.client.table('meal_entries')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('meal_date', str(date))\
+                .execute()
+            return response.data if response.data else []
+        except Exception as e:
+            print(f"❌ Error getting meals by date: {e}")
+            return []
         
     async def create_meal_preset(self, preset_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new meal preset"""

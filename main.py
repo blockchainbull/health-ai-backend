@@ -92,7 +92,7 @@ app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(meals_router, prefix="/api/health/meals", tags=["meals"])
 app.include_router(flutter_compat.router, prefix="/api/health", tags=["flutter-health"])
 app.include_router(chat.router, prefix="/api/health")
-app.include_router(weekly_router)
+app.include_router(weekly_router, prefix="/api/health")
 
 # Root endpoint
 @app.get("/")

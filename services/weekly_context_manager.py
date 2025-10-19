@@ -172,7 +172,7 @@ class WeeklyContextManager:
             
             # Save to database
             response = self.supabase_service.client.table('weekly_contexts')\
-                .insert({
+                .upsert({
                     'user_id': user_id,
                     'week_start_date': str(week_start),
                     'week_end_date': str(week_end),

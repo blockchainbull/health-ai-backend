@@ -283,19 +283,29 @@ async def recalculate_daily_nutrition(supabase_service, user_id: str, date: str)
         # Get all meals for the day
         meals = await supabase_service.get_user_meals_by_date(user_id, date)
         
+        # Get existing daily nutrition entry
+        existing = await supabase_service.get_daily_nutrition(user_id, date)
+        
+        if not existing:
+            print(f"⚠️ No daily nutrition entry found for {date}, skipping recalculation")
+            return
+        
         # Calculate new totals
         totals = {
-            'total_calories': sum(m.get('calories', 0) for m in meals),
-            'total_protein': sum(m.get('protein_g', 0) for m in meals),
-            'total_carbs': sum(m.get('carbs_g', 0) for m in meals),
-            'total_fat': sum(m.get('fat_g', 0) for m in meals),
-            'total_fiber': sum(m.get('fiber_g', 0) for m in meals),
-            'total_sugar': sum(m.get('sugar_g', 0) for m in meals),
-            'total_sodium': sum(m.get('sodium_mg', 0) for m in meals),
+            'calories_consumed': int(sum(m.get('calories', 0) for m in meals)),
+            'protein_g': round(sum(m.get('protein_g', 0) for m in meals), 1),
+            'carbs_g': round(sum(m.get('carbs_g', 0) for m in meals), 1),
+            'fat_g': round(sum(m.get('fat_g', 0) for m in meals), 1),
+            'fiber_g': round(sum(m.get('fiber_g', 0) for m in meals), 1),
+            'sugar_g': round(sum(m.get('sugar_g', 0) for m in meals), 1),
+            'sodium_mg': int(sum(m.get('sodium_mg', 0) for m in meals)),
+            'meals_logged': len(meals),
+            'updated_at': datetime.utcnow().isoformat()
         }
         
-        # Update daily nutrition table
-        await supabase_service.update_daily_nutrition(user_id, date, totals)
+        # Update daily nutrition table - use entry_id, not user_id and date
+        await supabase_service.update_daily_nutrition(existing['id'], totals)
+        print(f"✅ Recalculated daily nutrition for {date}")
         
     except Exception as e:
         print(f"Error recalculating daily nutrition: {e}")
@@ -494,7 +504,7 @@ async def use_meal_preset(preset_id: str, data: dict, tz_offset: int = Depends(g
                 user_id=preset['user_id'],
                 activity_type='meal',
                 data=saved,
-                date=user_date
+                target_date=user_date
             )
             print(f"✅ Updated context")
         except Exception as e:
