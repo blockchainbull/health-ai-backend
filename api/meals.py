@@ -452,7 +452,7 @@ async def use_meal_preset(preset_id: str, data: dict, tz_offset: int = Depends(g
         meal_entry = {
             'id': str(uuid.uuid4()),
             'user_id': preset['user_id'],
-            'food_item': preset.get('preset_name', 'Preset Meal'),
+            'food_item': preset.get('food_items', preset.get('preset_name', 'Preset Meal')),
             'quantity': '1 serving',
             'meal_type': data.get('meal_type', preset.get('meal_type', 'snack')),
             'calories': float(preset.get('total_calories', 0)),
