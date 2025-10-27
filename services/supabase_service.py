@@ -863,6 +863,42 @@ class SupabaseService:
             print(f"❌ Error getting weight entry by ID: {e}")
             return None
         
+    async def get_weight_by_date(self, user_id: str, date: date) -> Optional[Dict[str, Any]]:
+        """Get weight entry for a specific date"""
+        try:
+            print(f"🔍 Getting weight for user: {user_id}, date: {date}")
+            
+            response = self.client.table('weight_entries')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('date', str(date))\
+                .order('date', desc=True)\
+                .limit(1)\
+                .execute()
+            
+            if response.data:
+                entry = response.data[0]
+                print(f"✅ Found weight entry for {date}: {entry.get('weight')}kg")
+                return {
+                    'id': entry['id'],
+                    'user_id': entry['user_id'],
+                    'date': entry['date'],
+                    'weight': float(entry.get('weight', 0.0)),
+                    'notes': entry.get('notes'),
+                    'body_fat_percentage': float(entry['body_fat_percentage']) if entry.get('body_fat_percentage') else None,
+                    'muscle_mass_kg': float(entry['muscle_mass_kg']) if entry.get('muscle_mass_kg') else None,
+                    'created_at': entry.get('created_at'),
+                    'updated_at': entry.get('updated_at')
+                }
+            
+            print(f"ℹ️ No weight entry found for {date}")
+            return None
+        except Exception as e:
+            print(f"❌ Error getting weight by date: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+        
     async def update_user_weight(self, user_id: str, weight: float) -> bool:
         """Update user's current weight in the users table"""
         try:

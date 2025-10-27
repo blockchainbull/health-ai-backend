@@ -307,8 +307,12 @@ class WeeklyContextManager:
                     data['total_workouts'] += len(exercises)
                     
                     for ex in exercises:
-                        data['total_exercise_minutes'] += ex.get('duration_minutes', 0)
-                        data['total_calories_burned'] += ex.get('calories_burned', 0)
+
+                        duration = ex.get('duration_minutes') or 0
+                        calories = ex.get('calories_burned') or 0
+
+                        data['total_exercise_minutes'] += duration
+                        data['total_calories_burned'] += calories
                         
                         # Track exercise types
                         ex_type = ex.get('exercise_type', 'other')
