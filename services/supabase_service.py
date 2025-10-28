@@ -1392,19 +1392,27 @@ class SupabaseService:
         try:
             print(f"🔍 Getting exercises for user: {user_id}, date: {date}")
             
-            # Format date for query
-            start_datetime = f"{date}T00:00:00"
-            end_datetime = f"{date}T23:59:59"
+            # Use date range that captures entire day in UTC
+            start_datetime = f"{date}T00:00:00Z"
+            next_day = date + timedelta(days=1)
+            end_datetime = f"{next_day}T00:00:00Z"
+            
+            print(f"🔍 Date range: {start_datetime} to {end_datetime} (exclusive)")
             
             response = self.client.table('exercise_logs')\
                 .select('*')\
                 .eq('user_id', user_id)\
                 .gte('exercise_date', start_datetime)\
-                .lte('exercise_date', end_datetime)\
+                .lt('exercise_date', end_datetime)\
                 .execute()
             
             exercises = response.data or []
             print(f"✅ Found {len(exercises)} exercises for {date}")
+            
+            
+            if exercises:
+                for ex in exercises[:3]:  
+                    print(f"   - {ex.get('exercise_name')}: {ex.get('exercise_date')}")
             
             return exercises
         except Exception as e:
