@@ -1078,10 +1078,15 @@ class SupabaseService:
         try:
             print(f"🔍 Getting sleep for user: {user_id}, date: {date}")
             
+            start_datetime = f"{date}T00:00:00Z"
+            next_day = date + timedelta(days=1)
+            end_datetime = f"{next_day}T00:00:00Z"
+            
             response = self.client.table('sleep_entries')\
                 .select('*')\
                 .eq('user_id', user_id)\
-                .eq('date', str(date))\
+                .gte('date', start_datetime)\
+                .lt('date', end_datetime)\
                 .execute()
             
             if response.data:
