@@ -8,6 +8,7 @@ from utils.keep_alive import start_keep_alive
 from api import users, flutter_compat
 from services.supabase_service import init_supabase_service
 from api import chat
+from api import debug
 from api.meals import router as meals_router
 from api.weekly_context import router as weekly_router
 from api.activity_check import router as activity_check_router
@@ -95,6 +96,7 @@ app.include_router(flutter_compat.router, prefix="/api/health", tags=["flutter-h
 app.include_router(chat.router, prefix="/api/health")
 app.include_router(weekly_router, prefix="/api/health")
 app.include_router(activity_check_router, prefix="/api/health")
+app.include_router(debug.router)
 
 # Root endpoint
 @app.get("/")

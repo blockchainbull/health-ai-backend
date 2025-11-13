@@ -253,31 +253,22 @@ class SupabaseService:
             return []
         
     async def get_meals_by_date(self, user_id: str, date: date) -> List[Dict[str, Any]]:
-        """Get all meals for a specific date - FIXED VERSION"""
+        """Get all meals for a specific date"""
         try:
-            print(f"🔍 Getting meals for user: {user_id}, date: {date}")
-            
-            # ✅ FIX: Use date range instead of exact match
-            start_datetime = f"{date}T00:00:00"
-            end_datetime = f"{date}T23:59:59"
-            
-            print(f"🔍 Date range: {start_datetime} to {end_datetime}")
+            next_day = date + timedelta(days=1)
             
             response = self.client.table('meal_entries')\
                 .select('*')\
                 .eq('user_id', user_id)\
-                .gte('meal_date', start_datetime)\
-                .lte('meal_date', end_datetime)\
+                .gte('meal_date', str(date))\
+                .lt('meal_date', str(next_day))\
                 .execute()
             
             meals = response.data if response.data else []
             print(f"✅ Found {len(meals)} meals for {date}")
-            
             return meals
         except Exception as e:
             print(f"❌ Error getting meals by date: {e}")
-            import traceback
-            traceback.print_exc()
             return []
         
     async def create_meal_preset(self, preset_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -1129,33 +1120,24 @@ class SupabaseService:
             return None
         
     async def get_sleep_by_date(self, user_id: str, date: date) -> Optional[Dict[str, Any]]:
-        """Get sleep entry for a specific date - FIXED VERSION"""
+        """Get sleep entry for a specific date"""
         try:
-            print(f"🔍 Getting sleep for user: {user_id}, date: {date}")
-            
-            start_datetime = f"{date}T00:00:00"
-            end_datetime = f"{date}T23:59:59"
-            
-            print(f"🔍 Date range: {start_datetime} to {end_datetime}")
+            next_day = date + timedelta(days=1)
             
             response = self.client.table('sleep_entries')\
                 .select('*')\
                 .eq('user_id', user_id)\
-                .gte('date', start_datetime)\
-                .lte('date', end_datetime)\
+                .gte('date', str(date))\
+                .lt('date', str(next_day))\
                 .execute()
             
             if response.data:
-                entry = response.data[0]
-                print(f"✅ Found sleep entry for {date}: {entry.get('total_hours')}h")
-                return entry
+                print(f"✅ Found sleep entry for {date}: {response.data[0].get('total_hours')}h")
+                return response.data[0]
             
-            print(f"ℹ️ No sleep entry found for {date}")
             return None
         except Exception as e:
             print(f"❌ Error getting sleep by date: {e}")
-            import traceback
-            traceback.print_exc()
             return None
         
     async def get_sleep_entry_by_id(self, entry_id: str):
@@ -1458,35 +1440,22 @@ class SupabaseService:
             return None
         
     async def get_exercises_by_date(self, user_id: str, date: date) -> List[Dict[str, Any]]:
-        """Get all exercises for a specific date - FIXED VERSION"""
+        """Get all exercises for a specific date"""
         try:
-            print(f"🔍 Getting exercises for user: {user_id}, date: {date}")
-            
-            # ✅ FIX: Use date range for entire day
-            start_datetime = f"{date}T00:00:00"
-            end_datetime = f"{date}T23:59:59"
-            
-            print(f"🔍 Date range: {start_datetime} to {end_datetime}")
+            next_day = date + timedelta(days=1)
             
             response = self.client.table('exercise_logs')\
                 .select('*')\
                 .eq('user_id', user_id)\
-                .gte('exercise_date', start_datetime)\
-                .lte('exercise_date', end_datetime)\
+                .gte('exercise_date', str(date))\
+                .lt('exercise_date', str(next_day))\
                 .execute()
             
             exercises = response.data or []
             print(f"✅ Found {len(exercises)} exercises for {date}")
-            
-            if exercises:
-                for ex in exercises[:3]:
-                    print(f"   - {ex.get('exercise_name')}: {ex.get('duration_minutes')}min")
-            
             return exercises
         except Exception as e:
             print(f"❌ Error getting exercises by date: {e}")
-            import traceback
-            traceback.print_exc()
             return []
 
     # Period methods
