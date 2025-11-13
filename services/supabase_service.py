@@ -252,18 +252,32 @@ class SupabaseService:
             print(f"❌ Error getting daily nutrition range: {e}")
             return []
         
-    async def get_meals_by_date(self, user_id: str, date: date):
-        """Get all meals for a specific date"""
+    async def get_meals_by_date(self, user_id: str, date: date) -> List[Dict[str, Any]]:
+        """Get all meals for a specific date - FIXED VERSION"""
         try:
-            # Use meal_date column and filter by date range
+            print(f"🔍 Getting meals for user: {user_id}, date: {date}")
+            
+            # ✅ FIX: Use date range instead of exact match
+            start_datetime = f"{date}T00:00:00"
+            end_datetime = f"{date}T23:59:59"
+            
+            print(f"🔍 Date range: {start_datetime} to {end_datetime}")
+            
             response = self.client.table('meal_entries')\
                 .select('*')\
                 .eq('user_id', user_id)\
-                .eq('meal_date', str(date))\
+                .gte('meal_date', start_datetime)\
+                .lte('meal_date', end_datetime)\
                 .execute()
-            return response.data if response.data else []
+            
+            meals = response.data if response.data else []
+            print(f"✅ Found {len(meals)} meals for {date}")
+            
+            return meals
         except Exception as e:
             print(f"❌ Error getting meals by date: {e}")
+            import traceback
+            traceback.print_exc()
             return []
         
     async def create_meal_preset(self, preset_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -492,14 +506,40 @@ class SupabaseService:
             print(f"❌ Error getting water entry by date: {e}")
             return None
         
-    async def get_water_by_date(self, user_id: str, date: date):
-        """Get water intake for a specific date"""
-        response = self.client.table('daily_water')\
-            .select('*')\
-            .eq('user_id', user_id)\
-            .eq('date', str(date))\
-            .execute()
-        return response.data[0] if response.data else {}
+    async def get_water_by_date(self, user_id: str, date: date) -> Optional[Dict[str, Any]]:
+        """Get water intake for a specific date - FIXED VERSION"""
+        try:
+            print(f"🔍 Getting water for user: {user_id}, date: {date}")
+            
+            # ✅ FIX: Check if your table uses 'date' or 'log_date' column
+            # I'll provide both versions:
+            
+            # VERSION A: If column is called 'date'
+            response = self.client.table('daily_water')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('date', str(date))\
+                .execute()
+            
+            # VERSION B: If column is called 'log_date' (uncomment if needed)
+            # response = self.client.table('daily_water')\
+            #     .select('*')\
+            #     .eq('user_id', user_id)\
+            #     .eq('log_date', str(date))\
+            #     .execute()
+            
+            if response.data:
+                entry = response.data[0]
+                print(f"✅ Found water entry for {date}: {entry.get('glasses_consumed')} glasses")
+                return entry
+            
+            print(f"ℹ️ No water entry found for {date}")
+            return None
+        except Exception as e:
+            print(f"❌ Error getting water by date: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
 
     async def delete_water_entry(self, entry_id: str):
         """Delete water entry"""
@@ -746,14 +786,29 @@ class SupabaseService:
             print(f"❌ Error getting steps in range: {e}")
             return []
         
-    async def get_steps_by_date(self, user_id: str, date: date):
-        """Get step count for a specific date"""
-        response = self.client.table('daily_steps')\
-            .select('*')\
-            .eq('user_id', user_id)\
-            .eq('date', str(date))\
-            .execute()
-        return response.data[0] if response.data else {}
+    async def get_steps_by_date(self, user_id: str, date: date) -> Optional[Dict[str, Any]]:
+        """Get step count for a specific date - FIXED VERSION"""
+        try:
+            print(f"🔍 Getting steps for user: {user_id}, date: {date}")
+            
+            response = self.client.table('daily_steps')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .eq('date', str(date))\
+                .execute()
+            
+            if response.data:
+                entry = response.data[0]
+                print(f"✅ Found step entry for {date}: {entry.get('steps')} steps")
+                return entry
+            
+            print(f"ℹ️ No step entry found for {date}")
+            return None
+        except Exception as e:
+            print(f"❌ Error getting steps by date: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
     
     
     # Weight functions
@@ -864,7 +919,7 @@ class SupabaseService:
             return None
         
     async def get_weight_by_date(self, user_id: str, date: date) -> Optional[Dict[str, Any]]:
-        """Get weight entry for a specific date"""
+        """Get weight entry for a specific date - FIXED VERSION"""
         try:
             print(f"🔍 Getting weight for user: {user_id}, date: {date}")
             
@@ -1074,24 +1129,26 @@ class SupabaseService:
             return None
         
     async def get_sleep_by_date(self, user_id: str, date: date) -> Optional[Dict[str, Any]]:
-        """Get sleep entry for a specific date"""
+        """Get sleep entry for a specific date - FIXED VERSION"""
         try:
             print(f"🔍 Getting sleep for user: {user_id}, date: {date}")
             
-            start_datetime = f"{date}T00:00:00Z"
-            next_day = date + timedelta(days=1)
-            end_datetime = f"{next_day}T00:00:00Z"
+            start_datetime = f"{date}T00:00:00"
+            end_datetime = f"{date}T23:59:59"
+            
+            print(f"🔍 Date range: {start_datetime} to {end_datetime}")
             
             response = self.client.table('sleep_entries')\
                 .select('*')\
                 .eq('user_id', user_id)\
                 .gte('date', start_datetime)\
-                .lt('date', end_datetime)\
+                .lte('date', end_datetime)\
                 .execute()
             
             if response.data:
-                print(f"✅ Found sleep entry for {date}: {response.data[0].get('total_hours')}h")
-                return response.data[0]
+                entry = response.data[0]
+                print(f"✅ Found sleep entry for {date}: {entry.get('total_hours')}h")
+                return entry
             
             print(f"ℹ️ No sleep entry found for {date}")
             return None
@@ -1236,9 +1293,11 @@ class SupabaseService:
             print(f"❌ Error getting supplement log by date: {e}")
             return None
 
-    async def get_supplement_status_by_date(self, user_id: str, entry_date: date) -> Dict[str, bool]:
-        """Get supplement status for all supplements on a specific date"""
+    async def get_supplement_status_by_date(self, user_id: str, entry_date: date) -> Dict[str, Any]:
+        """Get supplement status for all supplements on a specific date - FIXED VERSION"""
         try:
+            print(f"🔍 Getting supplements for user: {user_id}, date: {entry_date}")
+            
             response = self.client.table('supplement_logs')\
                 .select('supplement_name, taken')\
                 .eq('user_id', user_id)\
@@ -1248,7 +1307,13 @@ class SupabaseService:
             status = {}
             if response.data:
                 for log in response.data:
-                    status[log['supplement_name']] = log['taken']
+                    status[log['supplement_name']] = {
+                        'taken': log['taken'],
+                        'supplement_name': log['supplement_name']
+                    }
+                print(f"✅ Found {len(status)} supplement logs for {entry_date}")
+            else:
+                print(f"ℹ️ No supplement logs found for {entry_date}")
             
             return status
         except Exception as e:
@@ -1393,31 +1458,29 @@ class SupabaseService:
             return None
         
     async def get_exercises_by_date(self, user_id: str, date: date) -> List[Dict[str, Any]]:
-        """Get all exercises for a specific date"""
+        """Get all exercises for a specific date - FIXED VERSION"""
         try:
             print(f"🔍 Getting exercises for user: {user_id}, date: {date}")
             
-            # Use date range that captures entire day in UTC
-            start_datetime = f"{date}T00:00:00Z"
-            next_day = date + timedelta(days=1)
-            end_datetime = f"{next_day}T00:00:00Z"
+            # ✅ FIX: Use date range for entire day
+            start_datetime = f"{date}T00:00:00"
+            end_datetime = f"{date}T23:59:59"
             
-            print(f"🔍 Date range: {start_datetime} to {end_datetime} (exclusive)")
+            print(f"🔍 Date range: {start_datetime} to {end_datetime}")
             
             response = self.client.table('exercise_logs')\
                 .select('*')\
                 .eq('user_id', user_id)\
                 .gte('exercise_date', start_datetime)\
-                .lt('exercise_date', end_datetime)\
+                .lte('exercise_date', end_datetime)\
                 .execute()
             
             exercises = response.data or []
             print(f"✅ Found {len(exercises)} exercises for {date}")
             
-            
             if exercises:
-                for ex in exercises[:3]:  
-                    print(f"   - {ex.get('exercise_name')}: {ex.get('exercise_date')}")
+                for ex in exercises[:3]:
+                    print(f"   - {ex.get('exercise_name')}: {ex.get('duration_minutes')}min")
             
             return exercises
         except Exception as e:
