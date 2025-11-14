@@ -470,6 +470,7 @@ class WeeklyContextManager:
         data['water_goal_achievement'] = 0
         data['step_goal_achievement'] = 0
         data['workout_goal_achievement'] = 0
+        data['supplement_adherence'] = 0
         
         # If we have days with data, calculate achievements
         if data['days_with_data'] > 0:
