@@ -466,8 +466,27 @@ class WeeklyContextManager:
         # Convert supplements set to list
         data['supplements_list'] = list(data['supplements_list'])
         
+        data['calorie_goal_achievement'] = 0
+        data['water_goal_achievement'] = 0
+        data['step_goal_achievement'] = 0
+        data['workout_goal_achievement'] = 0
         
-        # Print final summary
+        # If we have days with data, calculate achievements
+        if data['days_with_data'] > 0:
+            # Calorie goal achievement (percentage of days tracked)
+            data['calorie_goal_achievement'] = round((data['days_with_data'] / 7) * 100)
+            
+            # Water goal achievement
+            data['water_goal_achievement'] = round((data['days_water_goal_met'] / 7) * 100)
+            
+            # Step goal achievement  
+            data['step_goal_achievement'] = round((data['days_step_goal_met'] / 7) * 100)
+            
+            # Workout goal achievement (3+ workouts = 100%)
+            workout_goal = 3
+            data['workout_goal_achievement'] = min(100, round((data['total_workouts'] / workout_goal) * 100))
+        
+        # Update the final print to show these new fields
         print(f"\n📊 WEEKLY AGGREGATION COMPLETE:")
         print(f"   Total Meals: {data['total_meals']}")
         print(f"   Total Calories: {data['total_calories']}")
@@ -475,6 +494,8 @@ class WeeklyContextManager:
         print(f"   Total Exercise Minutes: {data['total_exercise_minutes']}")
         print(f"   Avg Sleep: {data['avg_sleep']}h")
         print(f"   Days with data: {data['days_with_data']}/7")
+        print(f"   ✅ Calorie goal achievement: {data['calorie_goal_achievement']}%")
+        print(f"   ✅ Workout goal achievement: {data['workout_goal_achievement']}%")
         
         return data
     
