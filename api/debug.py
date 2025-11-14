@@ -1,3 +1,4 @@
+# api/debug.py
 from fastapi import APIRouter, Query
 from datetime import datetime, timedelta, date
 from typing import Optional
@@ -39,7 +40,30 @@ async def check_data(user_id: str):
     except Exception as e:
         return {'error': str(e)}
 
-@router.delete("/clear-cache/{user_id}")
+@router.get("/list-cached-weeks/{user_id}")
+async def list_cached_weeks(user_id: str):
+    """See all cached weekly contexts for a user"""
+    try:
+        supabase = get_supabase_service()
+        
+        response = supabase.client.table('weekly_contexts')\
+            .select('week_start_date, week_end_date, week_number, year, created_at')\
+            .eq('user_id', user_id)\
+            .order('week_start_date', desc=True)\
+            .execute()
+        
+        weeks = response.data or []
+        
+        return {
+            'success': True,
+            'total_cached_weeks': len(weeks),
+            'weeks': weeks,
+            'note': 'These weeks have cached data that may be outdated'
+        }
+    except Exception as e:
+        return {'error': str(e)}
+
+@router.get("/clear-cache/{user_id}")
 async def clear_weekly_cache(user_id: str):
     """Delete ALL cached weekly contexts for a user - works for any date range"""
     try:
@@ -66,30 +90,7 @@ async def clear_weekly_cache(user_id: str):
         print(f"❌ Error clearing cache: {e}")
         return {'error': str(e)}
 
-@router.get("/list-cached-weeks/{user_id}")
-async def list_cached_weeks(user_id: str):
-    """See all cached weekly contexts for a user"""
-    try:
-        supabase = get_supabase_service()
-        
-        response = supabase.client.table('weekly_contexts')\
-            .select('week_start_date, week_end_date, week_number, year, created_at')\
-            .eq('user_id', user_id)\
-            .order('week_start_date', desc=True)\
-            .execute()
-        
-        weeks = response.data or []
-        
-        return {
-            'success': True,
-            'total_cached_weeks': len(weeks),
-            'weeks': weeks,
-            'note': 'These weeks have cached data that may be outdated'
-        }
-    except Exception as e:
-        return {'error': str(e)}
-
-@router.post("/rebuild-week/{user_id}")
+@router.get("/rebuild-week/{user_id}")
 async def rebuild_specific_week(
     user_id: str, 
     week_date: str = Query(..., description="Date in the week to rebuild (YYYY-MM-DD)")
@@ -131,7 +132,7 @@ async def rebuild_specific_week(
             'total_meals': result.get('weekly_context', {}).get('nutrition_summary', {}).get('total_meals_logged', 0),
             'total_workouts': result.get('weekly_context', {}).get('exercise_summary', {}).get('total_workouts', 0),
             'avg_sleep': result.get('weekly_context', {}).get('sleep_summary', {}).get('avg_nightly_hours', 0),
-            'result': result
+            'note': 'Check Render logs for detailed aggregation info'
         }
     except Exception as e:
         print(f"❌ Error rebuilding week: {e}")
@@ -139,7 +140,7 @@ async def rebuild_specific_week(
         traceback.print_exc()
         return {'error': str(e)}
 
-@router.post("/rebuild-date-range/{user_id}")
+@router.get("/rebuild-date-range/{user_id}")
 async def rebuild_date_range(
     user_id: str,
     start_date: str = Query(..., description="Start date (YYYY-MM-DD)"),
@@ -216,11 +217,10 @@ async def rebuild_date_range(
         traceback.print_exc()
         return {'error': str(e)}
 
-@router.post("/rebuild-all-weeks/{user_id}")
+@router.get("/rebuild-all-weeks/{user_id}")
 async def rebuild_all_weeks(user_id: str, weeks: int = Query(4, description="Number of recent weeks to rebuild")):
     """Clear cache and rebuild last N weeks"""
     try:
-        supabase = get_supabase_service()
         manager = get_weekly_context_manager()
         
         print(f"\n🔄 ===== REBUILDING LAST {weeks} WEEKS =====")
