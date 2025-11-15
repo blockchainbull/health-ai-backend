@@ -6,7 +6,7 @@ class ExerciseLogCreate(BaseModel):
     user_id: str
     exercise_name: str
     exercise_type: str
-    duration_minutes: int
+    duration_minutes: Optional[int] = None
     calories_burned: Optional[float] = None
     distance_km: Optional[float] = None
     sets: Optional[int] = None

@@ -55,10 +55,11 @@ def validate_and_sync_goals(weight_goal: str) -> str:
 
 def calculate_exercise_duration(exercise_type, sets, reps, exercise_name=None):
     """
-    Calculate realistic duration for an exercise
+    Calculate realistic duration for an exercise in minutes
+    Returns total workout time including rest periods
     """
     if exercise_type == 'cardio':
-        # Cardio has its own duration field
+        # Cardio duration should be provided by user
         return None  # Let user input actual duration
     
     elif exercise_type == 'strength':
@@ -79,9 +80,12 @@ def calculate_exercise_duration(exercise_type, sets, reps, exercise_name=None):
         setup_time = 30  # 30 seconds to set up/adjust weights
         
         total_seconds = total_rep_time + total_rest_time + setup_time
-        duration_minutes = round(total_seconds / 60, 1)
+        duration_minutes = round(total_seconds / 60)  # Round to integer
         
-        return duration_minutes
+        return max(duration_minutes, 1)  # Minimum 1 minute
+    
+    # Default for unknown types
+    return 5
 
 
 router = APIRouter()
@@ -2024,7 +2028,7 @@ async def get_supplement_status_by_date(
 
     
 @router.post("/exercise/log", response_model=dict)
-async def log_exercise(exercise_data: dict, tz_offset: int = Depends(get_timezone_offset)):  # Change from ExerciseLogCreate to dict
+async def log_exercise(exercise_data: dict, tz_offset: int = Depends(get_timezone_offset)):
     """Log exercise activity"""
     try:
         print(f"💪 Logging exercise: {exercise_data.get('exercise_name')} for user {exercise_data.get('user_id')}")
@@ -2041,13 +2045,39 @@ async def log_exercise(exercise_data: dict, tz_offset: int = Depends(get_timezon
         else:
             exercise_date = get_user_now(tz_offset)
         
+        # ✅ ENSURE duration_minutes is ALWAYS populated
+        exercise_type = exercise_data.get('exercise_type', 'strength')
+        
+        if not exercise_data.get('duration_minutes'):
+            # Calculate duration if not provided
+            if exercise_type == 'strength' and exercise_data.get('sets'):
+                calculated_duration = calculate_exercise_duration(
+                    exercise_type=exercise_type,
+                    sets=exercise_data.get('sets', 3),
+                    reps=exercise_data.get('reps', 12),
+                    exercise_name=exercise_data.get('exercise_name')
+                )
+                exercise_data['duration_minutes'] = calculated_duration
+                print(f"💪 Calculated duration for strength exercise: {calculated_duration} minutes")
+            elif exercise_type == 'cardio':
+                # Cardio should have duration, but set default if missing
+                exercise_data['duration_minutes'] = 10  # Default 10 min for cardio
+                print(f"⚠️ Warning: Cardio exercise without duration, using default: 10 minutes")
+            else:
+                # Unknown type - set default
+                exercise_data['duration_minutes'] = 5
+                print(f"⚠️ Warning: Exercise without duration or sets, using default: 5 minutes")
+        else:
+            print(f"💪 Using provided duration: {exercise_data.get('duration_minutes')} minutes")
+        
         # Clean the data - remove null values and ensure proper types
         exercise_log_data = {
             'id': str(uuid.uuid4()),
             'user_id': exercise_data.get('user_id'),
             'exercise_name': exercise_data.get('exercise_name'),
-            'exercise_type': exercise_data.get('exercise_type', 'strength'),
+            'exercise_type': exercise_type,
             'muscle_group': exercise_data.get('muscle_group', 'general'),
+            'duration_minutes': int(exercise_data.get('duration_minutes')),  # ✅ Always include
             'intensity': exercise_data.get('intensity'),
             'notes': exercise_data.get('notes'),
             'exercise_date': exercise_date.isoformat(),
@@ -2056,12 +2086,8 @@ async def log_exercise(exercise_data: dict, tz_offset: int = Depends(get_timezon
         }
         
         # Add type-specific fields only if they have values
-        exercise_type = exercise_data.get('exercise_type', 'strength')
-        
         if exercise_type == 'cardio':
             # For cardio exercises
-            if exercise_data.get('duration_minutes') is not None:
-                exercise_log_data['duration_minutes'] = int(exercise_data.get('duration_minutes'))
             if exercise_data.get('distance_km') is not None and exercise_data.get('distance_km') > 0:
                 exercise_log_data['distance_km'] = float(exercise_data.get('distance_km'))
             if exercise_data.get('calories_burned') is not None:
@@ -2074,13 +2100,6 @@ async def log_exercise(exercise_data: dict, tz_offset: int = Depends(get_timezon
                 exercise_log_data['reps'] = int(exercise_data.get('reps'))
             if exercise_data.get('weight_kg') is not None and exercise_data.get('weight_kg') > 0:
                 exercise_log_data['weight_kg'] = float(exercise_data.get('weight_kg'))
-            if not exercise_data.get('duration_minutes'):
-                exercise_data['duration_minutes'] = calculate_exercise_duration(
-                    exercise_type=exercise_data.get('exercise_type', 'strength'),
-                    sets=exercise_data.get('sets', 3),
-                    reps=exercise_data.get('reps', 12),
-                    exercise_name=exercise_data.get('exercise_name')
-                )
             if exercise_data.get('calories_burned') is not None:
                 exercise_log_data['calories_burned'] = float(exercise_data.get('calories_burned'))
         

@@ -1401,6 +1401,15 @@ class SupabaseService:
             
             logs = response.data or []
             print(f"✅ Retrieved {len(logs)} exercise logs")
+
+            for log in logs:
+                if log.get('duration_minutes') is None or log.get('duration_minutes') == 0:
+                    print(f"⚠️ Warning: Exercise {log.get('exercise_name')} has no duration, calculating...")
+                    # Calculate on the fly for old/corrupted records
+                    if log.get('exercise_type') == 'strength' and log.get('sets'):
+                        log['duration_minutes'] = log['sets'] * 2
+                    else:
+                        log['duration_minutes'] = 5
             
             # Debug the logs
             for i, log in enumerate(logs):
