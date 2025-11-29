@@ -122,7 +122,7 @@ async def mark_as_read(notification_id: str):
         print(f"❌ Error marking notification as read: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.put("/{user_id}/mark-all-read")
+@router.put("/{user_id}/read-all")
 async def mark_all_as_read(user_id: str):
     """Mark all notifications as read for a user"""
     try:
