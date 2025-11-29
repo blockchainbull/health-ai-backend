@@ -2,7 +2,7 @@
 from fastapi.middleware.cors import CORSMiddleware
 import os
 from dotenv import load_dotenv
-
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from utils.keep_alive import start_keep_alive
 from api import users, flutter_compat
@@ -17,8 +17,19 @@ from api.activity_check import router as activity_check_router
 # Load environment variables
 load_dotenv()
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup and shutdown"""
+    print("🚀 Starting up...")
+    start_keep_alive()  # ← This activates your keep-alive
+    print("✅ Keep-alive started")
+    yield
+    print("👋 Shutting down...")
+
+
 # Initialize FastAPI app
 app = FastAPI(
+    lifespan=lifespan,
     title="Health AI Backend",
     description="AI-powered health tracking backend with user management",
     version="2.0.0"
