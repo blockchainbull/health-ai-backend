@@ -60,9 +60,7 @@ async def get_unread_count(user_id: str):
             .eq('is_read', False)\
             .execute()
         
-        count = response.count if hasattr(response, 'count') else 0
-        
-        print(f"📊 Unread count for {user_id}: {count}")
+        count = len(response.data) if response.data else 0
         
         return {
             "success": True,
@@ -100,47 +98,36 @@ async def get_notifications(user_id: str, limit: int = 50):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.put("/{notification_id}/read")
-async def mark_as_read(notification_id: str):
+@router.put("/mark-read/{notification_id}")
+async def mark_notification_read(notification_id: str):
     """Mark a single notification as read"""
     try:
         supabase = get_supabase_service()
         
         response = supabase.client.table('notifications')\
-            .update({'is_read': True, 'read_at': datetime.utcnow().isoformat()})\
+            .update({'is_read': True})\
             .eq('id', notification_id)\
             .execute()
         
-        print(f"✅ Notification {notification_id} marked as read")
-        
-        return {
-            "success": True,
-            "notification": response.data[0] if response.data else None
-        }
+        return {"success": True}
         
     except Exception as e:
         print(f"❌ Error marking notification as read: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.put("/{user_id}/read-all")
-async def mark_all_as_read(user_id: str):
+@router.put("/mark-all-read/{user_id}")
+async def mark_all_notifications_read(user_id: str):
     """Mark all notifications as read for a user"""
     try:
         supabase = get_supabase_service()
         
         response = supabase.client.table('notifications')\
-            .update({'is_read': True, 'read_at': datetime.utcnow().isoformat()})\
+            .update({'is_read': True})\
             .eq('user_id', user_id)\
             .eq('is_read', False)\
             .execute()
         
-        updated_count = len(response.data) if response.data else 0
-        print(f"✅ Marked {updated_count} notifications as read for {user_id}")
-        
-        return {
-            "success": True,
-            "updated_count": updated_count
-        }
+        return {"success": True}
         
     except Exception as e:
         print(f"❌ Error marking all as read: {e}")
