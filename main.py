@@ -20,41 +20,7 @@ load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup and shutdown"""
-    print("🚀 Starting up...")
-    start_keep_alive()  # ← This activates your keep-alive
-    print("✅ Keep-alive started")
-    yield
-    print("👋 Shutting down...")
-
-
-# Initialize FastAPI app
-app = FastAPI(
-    lifespan=lifespan,
-    title="Health AI Backend",
-    description="AI-powered health tracking backend with user management",
-    version="2.0.0"
-)
-
-# Add CORS middleware for your Flutter app
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://*.vercel.app",                                 # All Vercel subdomains
-        "https://vercel.app",                                   # Vercel domain
-        "https://*.onrender.com",                               # Render domains
-        "https://fitness-flutter-app.vercel.app/",              # Your specific Vercel URL
-        "*"                                                     # Allow all origins (for testing)
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Initialize services on startup
-@app.on_event("startup")
-async def startup_event():
-    """Initialize services when the app starts"""
+    """Startup and shutdown - ALL initialization happens here"""
     print("🚀 Starting Health AI Backend...")
     
     try:
@@ -69,11 +35,11 @@ async def startup_event():
 
         # Initialize Firebase
         fcm.initialize_firebase()
+        print("✅ Firebase initialized")
         
         # Setup notification scheduler
         fcm.setup_notification_scheduler()
-        
-        print("✅ FCM initialized and scheduler started")
+        print("✅ FCM notification scheduler started")
         
         # Initialize USDA service
         try:
@@ -99,16 +65,39 @@ async def startup_event():
         except ImportError:
             print("⚠️ Meal Parser service not found")
         
-        # Start keep-alive (only in production)
-        if os.getenv("RENDER_EXTERNAL_URL"):
-            start_keep_alive()
-            print("✅ Keep-alive service started")
+        # Start keep-alive
+        start_keep_alive()
+        print("✅ Keep-alive service started")
         
         print("🎉 Backend startup complete!")
         
     except Exception as e:
         print(f"❌ Error during startup: {e}")
+        import traceback
+        traceback.print_exc()
         raise
+    
+    yield
+    
+    print("👋 Shutting down...")
+
+
+# Initialize FastAPI app
+app = FastAPI(
+    lifespan=lifespan,
+    title="Health AI Backend",
+    description="AI-powered health tracking backend with user management",
+    version="2.0.0"
+)
+
+# Add CORS middleware for your Flutter app
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins for now
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Include API routers
 app.include_router(users.router, prefix="/api/users", tags=["users"])
@@ -129,7 +118,7 @@ async def root():
         "message": "Health AI Backend API",
         "version": "2.0.0",
         "status": "running",
-        "features": ["user_management", "ai_meal_analysis", "health_chat"]
+        "features": ["user_management", "ai_meal_analysis", "health_chat", "fcm_notifications"]
     }
 
 @app.options("/{rest_of_path:path}")
