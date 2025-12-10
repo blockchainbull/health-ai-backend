@@ -8,7 +8,7 @@ import firebase_admin
 from firebase_admin import credentials, messaging
 from datetime import datetime, time
 from apscheduler.schedulers.background import BackgroundScheduler
-from services.supabase_service import get_supabase_client
+from services.supabase_service import get_supabase_service
 import os
 
 router = APIRouter(prefix="/api/fcm", tags=["fcm"])
@@ -65,11 +65,11 @@ class FCMTestNotification(BaseModel):
 # Database functions
 async def save_fcm_token(user_id: str, fcm_token: str, platform: str):
     """Save FCM token to database"""
-    supabase = get_supabase_client()
+    supabase = get_supabase_service()
     
     try:
         # Upsert token (insert or update if exists)
-        result = supabase.table('fcm_tokens').upsert({
+        result = supabase.client.table('fcm_tokens').upsert({
             'user_id': user_id,
             'fcm_token': fcm_token,
             'platform': platform,
@@ -83,10 +83,10 @@ async def save_fcm_token(user_id: str, fcm_token: str, platform: str):
 
 async def get_user_fcm_token(user_id: str) -> Optional[str]:
     """Get FCM token for a user"""
-    supabase = get_supabase_client()
+    supabase = get_supabase_service()
     
     try:
-        result = supabase.table('fcm_tokens')\
+        result = supabase.client.table('fcm_tokens')\
             .select('fcm_token')\
             .eq('user_id', user_id)\
             .single()\
@@ -99,10 +99,10 @@ async def get_user_fcm_token(user_id: str) -> Optional[str]:
 
 async def get_all_subscribed_users() -> List[dict]:
     """Get all users with FCM tokens"""
-    supabase = get_supabase_client()
+    supabase = get_supabase_service()
     
     try:
-        result = supabase.table('fcm_tokens')\
+        result = supabase.client.table('fcm_tokens')\
             .select('user_id, fcm_token, platform')\
             .execute()
         
@@ -172,10 +172,10 @@ async def send_notification_to_user(
 
 async def log_notification_sent(user_id: str, title: str, body: str, notification_type: str):
     """Log notification to database"""
-    supabase = get_supabase_client()
+    supabase = get_supabase_service()
     
     try:
-        supabase.table('notifications').insert({
+        supabase.client.table('notifications').insert({
             'user_id': user_id,
             'title': title,
             'message': body,
@@ -233,8 +233,8 @@ async def subscribe_to_notifications(data: FCMSubscribe):
         print(f"📬 Subscribing user to notifications: {data.user_id}")
         
         # Mark user as subscribed in database
-        supabase = get_supabase_client()
-        supabase.table('fcm_tokens')\
+        supabase = get_supabase_service()
+        supabase.client.table('fcm_tokens')\
             .update({'subscribed': True})\
             .eq('user_id', data.user_id)\
             .execute()
@@ -252,8 +252,8 @@ async def unsubscribe_from_notifications(data: FCMSubscribe):
     try:
         print(f"🔕 Unsubscribing user from notifications: {data.user_id}")
         
-        supabase = get_supabase_client()
-        supabase.table('fcm_tokens')\
+        supabase = get_supabase_service()
+        supabase.client.table('fcm_tokens')\
             .update({'subscribed': False})\
             .eq('user_id', data.user_id)\
             .execute()
