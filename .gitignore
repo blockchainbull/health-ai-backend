@@ -15,3 +15,6 @@ pip-log.txt
 pip-delete-this-directory.txt
 .DS_Store
 *.log" > .gitignore
+firebase-credentials.json
+   *.json
+   !package.json
