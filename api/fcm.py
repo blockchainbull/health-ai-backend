@@ -175,13 +175,31 @@ async def log_notification_sent(user_id: str, title: str, body: str, notificatio
     supabase = get_supabase_service()
     
     try:
+        # Map notification types to match database constraint
+        type_mapping = {
+            'breakfast': 'meal',
+            'lunch': 'meal',
+            'dinner': 'meal',
+            'water': 'hydration',
+            'supplement': 'supplement',
+            'sleep': 'sleep',
+            'exercise': 'exercise',
+            'reminder': 'reminder',
+            'fcm': 'fcm',
+            'test': 'test'
+        }
+        
+        db_type = type_mapping.get(notification_type, 'reminder')
+        
         supabase.client.table('notifications').insert({
             'user_id': user_id,
             'title': title,
             'message': body,
-            'type': notification_type,
+            'type': db_type,
             'created_at': datetime.utcnow().isoformat()
         }).execute()
+        
+        print(f"✅ Logged notification: {db_type}")
     except Exception as e:
         print(f"⚠️ Error logging notification: {e}")
 
