@@ -48,7 +48,7 @@ async def log_notification(notification: LogNotificationRequest):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/unread-count/{user_id}")
+@router.get("/unread/{user_id}")
 async def get_unread_count(user_id: str):
     """Get count of unread notifications"""
     try:
@@ -62,9 +62,11 @@ async def get_unread_count(user_id: str):
         
         count = len(response.data) if response.data else 0
         
+        print(f"📊 Unread count for {user_id}: {count}")
+        
         return {
             "success": True,
-            "count": count
+            "unread_count": count
         }
         
     except Exception as e:
