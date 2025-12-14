@@ -11,6 +11,7 @@ from api import fcm
 from api import chat
 from api import debug
 from api import notifications
+from api import notification_preferences
 from api.meals import router as meals_router
 from api.weekly_context import router as weekly_router
 from api.activity_check import router as activity_check_router
@@ -109,6 +110,7 @@ app.include_router(weekly_router, prefix="/api/health")
 app.include_router(activity_check_router, prefix="/api/health")
 app.include_router(debug.router)
 app.include_router(notifications.router, tags=["notifications"])
+app.include_router(notification_preferences.router, tags=["notification-preferences"])
 
 
 # Root endpoint
