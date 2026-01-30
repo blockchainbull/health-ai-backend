@@ -284,18 +284,18 @@ class MealAnalysisService:
         user_context: Dict[str, Any],
         preparation: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Fallback to ChatGPT for complex analysis"""
+        """Fallback to ChatGPT for complex analysis - now with micronutrients"""
         
-        # Use existing OpenAI service method
-        result = await self.openai_service.analyze_meal(
+        # Use the new micronutrient method instead of the old one
+        result = await self.openai_service.analyze_meal_with_micronutrients(
             food_item=food_item,
             quantity=quantity,
             user_context=user_context
         )
         
         # Mark as ChatGPT source
-        result["data_source"] = "ChatGPT"
-        result["confidence_score"] = 0.85  # Slightly lower confidence than USDA
+        result["data_source"] = "ChatGPT-micronutrients"
+        result["confidence_score"] = 0.85
         
         if preparation:
             result["preparation_method"] = preparation
