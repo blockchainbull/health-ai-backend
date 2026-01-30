@@ -600,3 +600,549 @@ def calculate_calorie_goal(user_profile: dict) -> int:
     max_calories = min(4000, int(tdee * 1.5))
     
     return max(min_calories, min(calorie_goal, max_calories))
+
+@router.get("/energy-balance/{user_id}")
+async def get_energy_balance(
+    user_id: str, 
+    date: Optional[str] = None,
+    tz_offset: int = Depends(get_timezone_offset)
+):
+    """
+    Get energy balance for a user on a specific date.
+    Returns calories consumed, burned, net calories, and remaining.
+    """
+    try:
+        from utils.timezone_utils import get_user_today
+        
+        supabase_service = get_supabase_service()
+        
+        # Get target date
+        if date:
+            target_date = datetime.strptime(date, '%Y-%m-%d').date()
+        else:
+            target_date = get_user_today(tz_offset)
+        
+        # Get user profile for TDEE
+        user = await supabase_service.get_user_by_id(user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        tdee = user.get('tdee', 2000)
+        primary_goal = user.get('primary_goal', 'maintain_weight')
+        
+        # Calculate calorie goal based on user's goal
+        calorie_goal = tdee
+        if primary_goal in ['lose_weight', 'weight_loss']:
+            calorie_goal = tdee - 500
+        elif primary_goal in ['gain_weight', 'weight_gain', 'bulk']:
+            calorie_goal = tdee + 400
+        elif primary_goal in ['gain_muscle', 'muscle_gain', 'recomposition']:
+            calorie_goal = tdee + 200
+        
+        # Get calories consumed
+        daily_nutrition = await supabase_service.get_daily_nutrition(user_id, str(target_date))
+        calories_consumed = daily_nutrition.get('calories_consumed', 0) if daily_nutrition else 0
+        
+        # Get calories burned from exercise
+        exercise_logs = await supabase_service.get_exercise_logs(
+            user_id,
+            start_date=str(target_date),
+            end_date=str(target_date)
+        )
+        calories_burned = sum(ex.get('calories_burned', 0) for ex in exercise_logs)
+        
+        # Calculate net and remaining
+        net_calories = calories_consumed - calories_burned
+        
+        # Adjusted remaining: Goal - Consumed + Burned
+        # This means if you exercise, you "earn back" calories
+        remaining_calories = calorie_goal - calories_consumed + calories_burned
+        
+        # Get macros consumed
+        protein_consumed = daily_nutrition.get('protein_g', 0) if daily_nutrition else 0
+        carbs_consumed = daily_nutrition.get('carbs_g', 0) if daily_nutrition else 0
+        fat_consumed = daily_nutrition.get('fat_g', 0) if daily_nutrition else 0
+        
+        return {
+            "success": True,
+            "date": str(target_date),
+            "energy_balance": {
+                "calories_consumed": round(calories_consumed),
+                "calories_burned": round(calories_burned),
+                "net_calories": round(net_calories),
+                "calorie_goal": round(calorie_goal),
+                "remaining_calories": round(remaining_calories),
+                "tdee": round(tdee),
+                "goal_type": primary_goal
+            },
+            "macros_consumed": {
+                "protein_g": round(protein_consumed, 1),
+                "carbs_g": round(carbs_consumed, 1),
+                "fat_g": round(fat_consumed, 1)
+            },
+            "exercise_summary": {
+                "total_exercises": len(exercise_logs),
+                "total_calories_burned": round(calories_burned),
+                "exercises": [
+                    {
+                        "name": ex.get('exercise_name'),
+                        "calories": ex.get('calories_burned', 0),
+                        "duration": ex.get('duration_minutes', 0)
+                    } for ex in exercise_logs
+                ]
+            }
+        }
+        
+    except Exception as e:
+        print(f"❌ Error getting energy balance: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/remaining-macros/{user_id}")
+async def get_remaining_macros(
+    user_id: str,
+    date: Optional[str] = None,
+    tz_offset: int = Depends(get_timezone_offset)
+):
+    """
+    Get remaining macros for the day, adjusted for exercise.
+    """
+    try:
+        from utils.timezone_utils import get_user_today
+        
+        supabase_service = get_supabase_service()
+        
+        target_date = datetime.strptime(date, '%Y-%m-%d').date() if date else get_user_today(tz_offset)
+        
+        # Get user profile
+        user = await supabase_service.get_user_by_id(user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Calculate macro goals based on user profile
+        tdee = user.get('tdee', 2000)
+        primary_goal = user.get('primary_goal', 'maintain_weight')
+        weight = user.get('weight', 70)
+        activity_level = user.get('activity_level', 'moderately_active')
+        
+        # Adjust calorie goal
+        calorie_adjustment = 0
+        if primary_goal in ['lose_weight', 'weight_loss']:
+            calorie_adjustment = -500
+            macro_percentages = {'protein': 0.35, 'carbs': 0.40, 'fat': 0.25}
+        elif primary_goal in ['gain_muscle', 'muscle_gain', 'recomposition']:
+            calorie_adjustment = 200 if 'gain' in primary_goal else -200
+            macro_percentages = {'protein': 0.40, 'carbs': 0.35, 'fat': 0.25}
+        elif primary_goal in ['gain_weight', 'weight_gain', 'bulk']:
+            calorie_adjustment = 400
+            macro_percentages = {'protein': 0.25, 'carbs': 0.45, 'fat': 0.30}
+        else:
+            macro_percentages = {'protein': 0.30, 'carbs': 0.40, 'fat': 0.30}
+        
+        # Adjust for activity level
+        if activity_level in ['very_active', 'extremely_active']:
+            macro_percentages['carbs'] += 0.05
+            macro_percentages['fat'] -= 0.05
+        
+        calorie_goal = tdee + calorie_adjustment
+        
+        # Calculate macro goals in grams
+        macro_goals = {
+            'protein_g': (calorie_goal * macro_percentages['protein']) / 4,
+            'carbs_g': (calorie_goal * macro_percentages['carbs']) / 4,
+            'fat_g': (calorie_goal * macro_percentages['fat']) / 9
+        }
+        
+        # Ensure minimum protein (1g per kg body weight for most, higher for muscle goals)
+        min_protein = weight * (2.0 if 'muscle' in primary_goal.lower() else 1.0)
+        macro_goals['protein_g'] = max(macro_goals['protein_g'], min_protein)
+        
+        # Get calories burned from exercise
+        exercise_logs = await supabase_service.get_exercise_logs(
+            user_id,
+            start_date=str(target_date),
+            end_date=str(target_date)
+        )
+        calories_burned = sum(ex.get('calories_burned', 0) for ex in exercise_logs)
+        
+        # Adjust goals based on exercise (add back proportionally)
+        exercise_adjustment_ratio = 1 + (calories_burned / calorie_goal) if calorie_goal > 0 else 1
+        
+        adjusted_macro_goals = {
+            'protein_g': round(macro_goals['protein_g'] * exercise_adjustment_ratio, 1),
+            'carbs_g': round(macro_goals['carbs_g'] * exercise_adjustment_ratio, 1),
+            'fat_g': round(macro_goals['fat_g'] * exercise_adjustment_ratio, 1),
+            'calories': round(calorie_goal + calories_burned)
+        }
+        
+        # Get consumed macros
+        daily_nutrition = await supabase_service.get_daily_nutrition(user_id, str(target_date))
+        
+        consumed = {
+            'protein_g': daily_nutrition.get('protein_g', 0) if daily_nutrition else 0,
+            'carbs_g': daily_nutrition.get('carbs_g', 0) if daily_nutrition else 0,
+            'fat_g': daily_nutrition.get('fat_g', 0) if daily_nutrition else 0,
+            'calories': daily_nutrition.get('calories_consumed', 0) if daily_nutrition else 0
+        }
+        
+        # Calculate remaining
+        remaining = {
+            'protein_g': round(adjusted_macro_goals['protein_g'] - consumed['protein_g'], 1),
+            'carbs_g': round(adjusted_macro_goals['carbs_g'] - consumed['carbs_g'], 1),
+            'fat_g': round(adjusted_macro_goals['fat_g'] - consumed['fat_g'], 1),
+            'calories': round(adjusted_macro_goals['calories'] - consumed['calories'])
+        }
+        
+        return {
+            "success": True,
+            "date": str(target_date),
+            "goals": adjusted_macro_goals,
+            "consumed": consumed,
+            "remaining": remaining,
+            "exercise_calories_burned": round(calories_burned),
+            "base_calorie_goal": round(calorie_goal),
+            "adjusted_calorie_goal": round(calorie_goal + calories_burned)
+        }
+        
+    except Exception as e:
+        print(f"❌ Error getting remaining macros: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/trends/{user_id}")
+async def get_nutrition_trends(
+    user_id: str,
+    days: int = 30,
+    tz_offset: int = Depends(get_timezone_offset)
+):
+    """
+    Get nutrition trends for the specified number of days.
+    Returns daily data for charting.
+    """
+    try:
+        supabase_service = get_supabase_service()
+        
+        # Get user for goals
+        user = await supabase_service.get_user_by_id(user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        tdee = user.get('tdee', 2000)
+        
+        # Calculate date range
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=days)
+        
+        # Get all daily nutrition entries in range
+        response = supabase_service.client.table('daily_nutrition')\
+            .select('*')\
+            .eq('user_id', user_id)\
+            .gte('date', str(start_date))\
+            .lte('date', str(end_date))\
+            .order('date', desc=False)\
+            .execute()
+        
+        daily_data = response.data or []
+        
+        # Get exercise data for the same period
+        exercise_response = supabase_service.client.table('exercise_logs')\
+            .select('exercise_date, calories_burned')\
+            .eq('user_id', user_id)\
+            .gte('exercise_date', str(start_date))\
+            .lte('exercise_date', str(end_date))\
+            .execute()
+        
+        # Aggregate exercise by date
+        exercise_by_date = {}
+        for ex in (exercise_response.data or []):
+            date_key = ex['exercise_date'][:10]  # Get just the date part
+            exercise_by_date[date_key] = exercise_by_date.get(date_key, 0) + ex.get('calories_burned', 0)
+        
+        # Build trend data
+        trend_data = []
+        nutrition_by_date = {d['date']: d for d in daily_data}
+        
+        current_date = start_date
+        while current_date <= end_date:
+            date_str = str(current_date)
+            nutrition = nutrition_by_date.get(date_str, {})
+            
+            trend_data.append({
+                'date': date_str,
+                'calories_consumed': nutrition.get('calories_consumed', 0),
+                'calories_burned': exercise_by_date.get(date_str, 0),
+                'net_calories': nutrition.get('calories_consumed', 0) - exercise_by_date.get(date_str, 0),
+                'protein_g': nutrition.get('protein_g', 0),
+                'carbs_g': nutrition.get('carbs_g', 0),
+                'fat_g': nutrition.get('fat_g', 0),
+                'fiber_g': nutrition.get('fiber_g', 0),
+                'meals_logged': nutrition.get('meals_logged', 0)
+            })
+            
+            current_date += timedelta(days=1)
+        
+        # Calculate averages
+        days_with_data = [d for d in trend_data if d['meals_logged'] > 0]
+        num_days = len(days_with_data) or 1
+        
+        averages = {
+            'avg_calories': sum(d['calories_consumed'] for d in days_with_data) / num_days,
+            'avg_protein': sum(d['protein_g'] for d in days_with_data) / num_days,
+            'avg_carbs': sum(d['carbs_g'] for d in days_with_data) / num_days,
+            'avg_fat': sum(d['fat_g'] for d in days_with_data) / num_days,
+            'avg_fiber': sum(d['fiber_g'] for d in days_with_data) / num_days,
+            'avg_net_calories': sum(d['net_calories'] for d in days_with_data) / num_days,
+            'days_logged': num_days,
+            'logging_streak': _calculate_streak(trend_data),
+            'calorie_goal': tdee
+        }
+        
+        # Calculate weekly summaries
+        weekly_summaries = _calculate_weekly_summaries(trend_data)
+        
+        return {
+            "success": True,
+            "user_id": user_id,
+            "period_days": days,
+            "trend_data": trend_data,
+            "averages": averages,
+            "weekly_summaries": weekly_summaries
+        }
+        
+    except Exception as e:
+        print(f"❌ Error getting nutrition trends: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _calculate_streak(trend_data: list) -> int:
+    """Calculate current logging streak"""
+    streak = 0
+    # Iterate from most recent
+    for day in reversed(trend_data):
+        if day['meals_logged'] > 0:
+            streak += 1
+        else:
+            break
+    return streak
+
+
+def _calculate_weekly_summaries(trend_data: list) -> list:
+    """Group trend data into weekly summaries"""
+    from collections import defaultdict
+    
+    weeks = defaultdict(list)
+    for day in trend_data:
+        date = datetime.strptime(day['date'], '%Y-%m-%d')
+        week_start = date - timedelta(days=date.weekday())
+        week_key = week_start.strftime('%Y-%m-%d')
+        weeks[week_key].append(day)
+    
+    summaries = []
+    for week_start, days in sorted(weeks.items()):
+        days_with_data = [d for d in days if d['meals_logged'] > 0]
+        num_days = len(days_with_data) or 1
+        
+        summaries.append({
+            'week_start': week_start,
+            'days_logged': len(days_with_data),
+            'avg_calories': round(sum(d['calories_consumed'] for d in days_with_data) / num_days),
+            'avg_protein': round(sum(d['protein_g'] for d in days_with_data) / num_days, 1),
+            'total_calories_burned': sum(d['calories_burned'] for d in days),
+        })
+    
+    return summaries
+
+
+@router.get("/macro-breakdown/{user_id}")
+async def get_macro_breakdown(
+    user_id: str,
+    days: int = 7,
+    tz_offset: int = Depends(get_timezone_offset)
+):
+    """
+    Get detailed macro breakdown for pie charts and analysis.
+    """
+    try:
+        supabase_service = get_supabase_service()
+        
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=days)
+        
+        # Get meals in range
+        response = supabase_service.client.table('meal_entries')\
+            .select('*')\
+            .eq('user_id', user_id)\
+            .gte('meal_date', str(start_date))\
+            .lte('meal_date', str(end_date))\
+            .execute()
+        
+        meals = response.data or []
+        
+        # Aggregate by meal type
+        meal_type_breakdown = {}
+        for meal in meals:
+            meal_type = meal.get('meal_type', 'snack')
+            if meal_type not in meal_type_breakdown:
+                meal_type_breakdown[meal_type] = {
+                    'calories': 0,
+                    'protein_g': 0,
+                    'carbs_g': 0,
+                    'fat_g': 0,
+                    'count': 0
+                }
+            
+            meal_type_breakdown[meal_type]['calories'] += meal.get('calories', 0)
+            meal_type_breakdown[meal_type]['protein_g'] += meal.get('protein_g', 0)
+            meal_type_breakdown[meal_type]['carbs_g'] += meal.get('carbs_g', 0)
+            meal_type_breakdown[meal_type]['fat_g'] += meal.get('fat_g', 0)
+            meal_type_breakdown[meal_type]['count'] += 1
+        
+        # Calculate total macros
+        total_protein = sum(m.get('protein_g', 0) for m in meals)
+        total_carbs = sum(m.get('carbs_g', 0) for m in meals)
+        total_fat = sum(m.get('fat_g', 0) for m in meals)
+        total_calories = sum(m.get('calories', 0) for m in meals)
+        
+        # Calculate percentages
+        total_macro_calories = (total_protein * 4) + (total_carbs * 4) + (total_fat * 9)
+        
+        macro_percentages = {
+            'protein': round((total_protein * 4 / total_macro_calories * 100) if total_macro_calories > 0 else 0, 1),
+            'carbs': round((total_carbs * 4 / total_macro_calories * 100) if total_macro_calories > 0 else 0, 1),
+            'fat': round((total_fat * 9 / total_macro_calories * 100) if total_macro_calories > 0 else 0, 1)
+        }
+        
+        return {
+            "success": True,
+            "period_days": days,
+            "totals": {
+                "calories": round(total_calories),
+                "protein_g": round(total_protein, 1),
+                "carbs_g": round(total_carbs, 1),
+                "fat_g": round(total_fat, 1),
+                "meals_count": len(meals)
+            },
+            "macro_percentages": macro_percentages,
+            "meal_type_breakdown": meal_type_breakdown,
+            "daily_average": {
+                "calories": round(total_calories / days),
+                "protein_g": round(total_protein / days, 1),
+                "carbs_g": round(total_carbs / days, 1),
+                "fat_g": round(total_fat / days, 1)
+            }
+        }
+        
+    except Exception as e:
+        print(f"❌ Error getting macro breakdown: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/micronutrients/{user_id}")
+async def get_micronutrient_summary(
+    user_id: str,
+    date: Optional[str] = None,
+    tz_offset: int = Depends(get_timezone_offset)
+):
+    """
+    Get micronutrient summary with % of daily values.
+    """
+    try:
+        from utils.timezone_utils import get_user_today
+        
+        supabase_service = get_supabase_service()
+        
+        target_date = datetime.strptime(date, '%Y-%m-%d').date() if date else get_user_today(tz_offset)
+        
+        # Get meals for the day
+        response = supabase_service.client.table('meal_entries')\
+            .select('*')\
+            .eq('user_id', user_id)\
+            .gte('meal_date', f"{target_date}T00:00:00")\
+            .lte('meal_date', f"{target_date}T23:59:59")\
+            .execute()
+        
+        meals = response.data or []
+        
+        # Aggregate micronutrients
+        totals = {
+            'vitamin_a_mcg': 0,
+            'vitamin_c_mg': 0,
+            'vitamin_d_mcg': 0,
+            'vitamin_e_mg': 0,
+            'vitamin_k_mcg': 0,
+            'vitamin_b12_mcg': 0,
+            'calcium_mg': 0,
+            'iron_mg': 0,
+            'potassium_mg': 0,
+            'magnesium_mg': 0,
+            'zinc_mg': 0,
+            'cholesterol_mg': 0,
+            'saturated_fat_g': 0,
+            'fiber_g': 0
+        }
+        
+        for meal in meals:
+            for key in totals:
+                totals[key] += meal.get(key, 0) or 0
+        
+        # Daily values for % calculation
+        daily_values = {
+            'vitamin_a_mcg': 900,
+            'vitamin_c_mg': 90,
+            'vitamin_d_mcg': 20,
+            'vitamin_e_mg': 15,
+            'vitamin_k_mcg': 120,
+            'vitamin_b12_mcg': 2.4,
+            'calcium_mg': 1300,
+            'iron_mg': 18,
+            'potassium_mg': 4700,
+            'magnesium_mg': 420,
+            'zinc_mg': 11,
+            'cholesterol_mg': 300,
+            'saturated_fat_g': 20,
+            'fiber_g': 28
+        }
+        
+        # Calculate percentages
+        percentages = {}
+        for key, value in totals.items():
+            dv = daily_values.get(key, 100)
+            percentages[key] = round((value / dv) * 100, 1) if dv > 0 else 0
+        
+        # Identify highlights (good and concerning)
+        highlights = {
+            'excellent': [],  # >80% DV
+            'good': [],       # 50-80% DV
+            'low': [],        # <20% DV
+            'high': []        # >100% DV for cholesterol/sat fat
+        }
+        
+        for key, pct in percentages.items():
+            nutrient_name = key.replace('_', ' ').replace(' mg', '').replace(' mcg', '').replace(' g', '').title()
+            
+            if key in ['cholesterol_mg', 'saturated_fat_g']:
+                if pct > 100:
+                    highlights['high'].append(f"{nutrient_name}: {pct}% DV")
+            else:
+                if pct >= 80:
+                    highlights['excellent'].append(f"{nutrient_name}: {pct}% DV")
+                elif pct >= 50:
+                    highlights['good'].append(f"{nutrient_name}: {pct}% DV")
+                elif pct < 20:
+                    highlights['low'].append(f"{nutrient_name}: {pct}% DV")
+        
+        return {
+            "success": True,
+            "date": str(target_date),
+            "totals": totals,
+            "daily_values": daily_values,
+            "percentages": percentages,
+            "highlights": highlights,
+            "meals_count": len(meals)
+        }
+        
+    except Exception as e:
+        print(f"❌ Error getting micronutrient summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

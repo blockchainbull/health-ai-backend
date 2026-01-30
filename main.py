@@ -15,6 +15,7 @@ from api import notification_preferences
 from api.meals import router as meals_router
 from api.weekly_context import router as weekly_router
 from api.activity_check import router as activity_check_router
+from api.meal_suggestions import router as suggestions_router
 
 # Load environment variables
 load_dotenv()
@@ -111,6 +112,7 @@ app.include_router(activity_check_router, prefix="/api/health")
 app.include_router(debug.router)
 app.include_router(notifications.router, tags=["notifications"])
 app.include_router(notification_preferences.router, tags=["notification-preferences"])
+app.include_router(suggestions_router, prefix="/api/health", tags=["meal_suggestions"])
 
 
 # Root endpoint

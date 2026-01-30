@@ -13,36 +13,28 @@ class OpenAIService:
         self.client = openai.AsyncOpenAI(api_key=api_key)
         print("✅ OpenAI service initialized")
     
-    async def analyze_meal(self, food_item: str, quantity: str, user_context: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze meal nutrition using GPT with better quantity handling"""
+    async def analyze_meal_with_micronutrients(
+    self, 
+    food_item: str, 
+    quantity: str, 
+    user_context: Dict[str, Any]
+) -> Dict[str, Any]:
+        """Analyze meal nutrition including micronutrients"""
         try:
-            print(f"🔍 Analyzing meal: {food_item} ({quantity})")
-            
-            # Create specific guidance based on the food and quantity
-            quantity_guidance = self._get_quantity_guidance(food_item, quantity)
+            print(f"🔍 Analyzing meal with micronutrients: {food_item} ({quantity})")
             
             prompt = f"""
-            Analyze this meal and provide accurate nutrition information.
+            Analyze this meal and provide comprehensive nutrition information including micronutrients.
             
             Food: {food_item}
             Quantity: {quantity}
-            
-            {quantity_guidance}
-            
-            CRITICAL INSTRUCTIONS FOR ACCURATE PORTIONS:
-            - "1 egg" = ~70 calories (not a serving of eggs which could be 2-3 eggs)
-            - "1 slice bread/toast" = ~70-80 calories (not a serving which could be 2 slices)
-            - "1 cup juice" = 8 oz = ~110 calories
-            - "1 medium apple" = ~95 calories
-            - "1 cup cooked rice" = ~205 calories
-            - "1 oz cheese" = ~110 calories
             
             User context:
             - Weight: {user_context.get('weight', 70)} kg
             - Goal: {user_context.get('primary_goal', 'maintain weight')}
             - TDEE: {user_context.get('tdee', 2000)} calories
             
-            Return ONLY valid JSON with accurate values based on the EXACT quantity specified:
+            Return ONLY valid JSON with accurate values:
             {{
                 "calories": integer,
                 "protein_g": float,
@@ -51,18 +43,35 @@ class OpenAIService:
                 "fiber_g": float,
                 "sugar_g": float,
                 "sodium_mg": integer,
-                "serving_description": "string describing exactly what was analyzed",
-                "nutrition_notes": "string",
+                "saturated_fat_g": float,
+                "trans_fat_g": float,
+                "cholesterol_mg": float,
+                "vitamin_a_mcg": float,
+                "vitamin_c_mg": float,
+                "vitamin_d_mcg": float,
+                "vitamin_e_mg": float,
+                "vitamin_k_mcg": float,
+                "vitamin_b12_mcg": float,
+                "calcium_mg": float,
+                "iron_mg": float,
+                "potassium_mg": float,
+                "magnesium_mg": float,
+                "zinc_mg": float,
+                "serving_description": "string",
+                "nutrition_notes": "string with micronutrient highlights",
                 "healthiness_score": integer (1-10),
                 "suggestions": "string"
             }}
+            
+            Be accurate with micronutrients - if a food is not a significant source of a nutrient, use 0.
+            Highlight any nutrients where this food provides >20% of daily value.
             """
             
             response = await self.client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-5-mini",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
-                max_tokens=800
+                max_tokens=1000
             )
             
             content = response.choices[0].message.content.strip()
@@ -73,39 +82,16 @@ class OpenAIService:
             elif content.startswith('```'):
                 content = content[3:-3]
             
-            nutrition_data = json.loads(content)
+            import json
+            result = json.loads(content)
+            result['data_source'] = 'ChatGPT-micronutrients'
             
-            # Ensure all required fields exist with proper types
-            nutrition_data = {
-                "calories": int(float(nutrition_data.get("calories", 200))),
-                "protein_g": round(float(nutrition_data.get("protein_g", 10.0)), 1),
-                "carbs_g": round(float(nutrition_data.get("carbs_g", 25.0)), 1),
-                "fat_g": round(float(nutrition_data.get("fat_g", 8.0)), 1),
-                "fiber_g": round(float(nutrition_data.get("fiber_g", 2.0)), 1),
-                "sugar_g": round(float(nutrition_data.get("sugar_g", 3.0)), 1),
-                "sodium_mg": int(float(nutrition_data.get("sodium_mg", 200))),
-                "serving_description": str(nutrition_data.get("serving_description", f"{quantity} of {food_item}")),
-                "nutrition_notes": str(nutrition_data.get("nutrition_notes", "")),
-                "healthiness_score": int(nutrition_data.get("healthiness_score", 6)),
-                "suggestions": str(nutrition_data.get("suggestions", ""))
-            }
+            return result
             
-            print(f"✅ Meal analysis complete: {nutrition_data['calories']} calories")
-            print(f"   Fiber: {nutrition_data['fiber_g']}g, Sugar: {nutrition_data['sugar_g']}g, Sodium: {nutrition_data['sodium_mg']}mg")
-            
-            return nutrition_data
-            
-        except json.JSONDecodeError as e:
-            print(f"❌ JSON parsing error: {e}")
-            print(f"   Raw content: {content}")
-            # Return fallback data
-            return self._get_fallback_nutrition(food_item, quantity)
         except Exception as e:
-            print(f"❌ Error analyzing meal: {e}")
-            import traceback
-            traceback.print_exc()
-            # Return fallback data
-            return self._get_fallback_nutrition(food_item, quantity)
+            print(f"❌ Error in micronutrient analysis: {e}")
+            # Return basic analysis as fallback
+            return await self.analyze_meal(food_item, quantity, user_context)
 
     def _get_fallback_nutrition(self, food_item: str, quantity: str) -> Dict[str, Any]:
         """Get fallback nutrition data when AI analysis fails"""
